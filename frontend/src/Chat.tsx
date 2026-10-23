@@ -2,12 +2,8 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "./ThemeContext";
 
-// MUDANÇA IMPORTANTE:
-// Se estiver rodando localmente (backend na sua máquina), use localhost.
-// Se for subir para produção, você pode trocar aqui ou usar variável de ambiente.
-// Sugestão: Deixar localhost enquanto desenvolvemos.
-// const API_URL = "http://localhost:8000"; 
-const API_URL = "https://chatbot-itt-5lbt.onrender.com"; // URL antiga
+// URL do backend: VITE_API_URL em frontend/.env (local) ou nas variáveis da Vercel (produção). Sem a variável, usa o backend local.
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 interface ChatProps {
   idToken: string;
