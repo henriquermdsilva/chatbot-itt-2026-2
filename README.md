@@ -1,7 +1,1 @@
-Fork do repositório https://github.com/programacao-dev/chatbot-itt-. Aqui, são documentados os avanços obtidos para o desenvolvimento do chatbot para o itt durante o primeiro semestre de 2026.
-
-Chris Araújo Felipe Souza - 250453
-
-Richard Matias de sousa - 243905
-
-Tallyta Duarte - 188305
+Fork do repositório https://github.com/programacao-dev/chatbot-itt-2026-1. Aqui, são documentados os avanços obtidos no desenvolvimento do chatbot para o Instituto Tadeo Takahashi (ITT) durante o segundo semestre de 2026.
