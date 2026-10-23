@@ -2,12 +2,8 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "./ThemeContext";
 
-// MUDANÇA IMPORTANTE:
-// Se estiver rodando localmente (backend na sua máquina), use localhost.
-// Se for subir para produção, você pode trocar aqui ou usar variável de ambiente.
-// Sugestão: Deixar localhost enquanto desenvolvemos.
-// const API_URL = "http://localhost:8000"; 
-const API_URL = "https://chatbot-itt-5lbt.onrender.com"; // URL antiga
+// URL do backend: VITE_API_URL em frontend/.env (local) ou nas variáveis da Vercel (produção). Sem a variável, usa o backend local.
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 interface ChatProps {
   idToken: string;
@@ -27,6 +23,9 @@ interface Mensagem {
   fontes?: SourceDocument[];
   timestamp: string;
 }
+
+const horaAtual = () =>
+  new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 export default function Chat({ idToken, email, onLogout }: ChatProps) {
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
@@ -60,8 +59,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
   const enviarPergunta = async () => {
     if (!pergunta.trim() || isLoading) return;
 
-    const timestamp = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const msgUser: Mensagem = { autor: "user", texto: pergunta, timestamp };
+    const msgUser: Mensagem = { autor: "user", texto: pergunta, timestamp: horaAtual() };
     setMensagens((m) => [...m, msgUser]);
 
     const perguntaTexto = pergunta;
@@ -70,7 +68,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     const loadingMsg: Mensagem = {
       autor: "assistant",
       texto: "Analisando a pergunta, aguarde um momento...",
-      timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      timestamp: horaAtual()
     };
     setMensagens((m) => [...m, loadingMsg]);
     setIsLoading(true);
@@ -80,7 +78,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     setMensagens((m) =>
       m.map((msg) =>
         msg === loadingMsg
-          ? { autor: "assistant" as const, texto, fontes }
+          ? { autor: "assistant" as const, texto, fontes, timestamp: horaAtual() }
           : msg
       )
     );
