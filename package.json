@@ -1,0 +1,11 @@
+{
+  "name": "chatbot-itt",
+  "private": true,
+  "scripts": {
+    "postinstall": "npm --prefix frontend install",
+    "dev": "concurrently -n backend,frontend -c blue,green \"cd backend && uv run uvicorn src.api:app --reload --port 8000\" \"npm --prefix frontend run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}
