@@ -1,0 +1,10 @@
+id,question,expected_answer,expected_source,has_answer
+1,Qual é o nome completo do ITT?,,,yes
+2,Qual é a missão principal do ITT?,,,yes
+3,Em que ano o ITT foi fundado?,,,yes
+4,Quem fundou o ITT?,,,yes
+5,Em quais regiões o ITT atua?,,,yes
+6,Como o ITT financia suas atividades?,,,yes
+7,Quantos projetos ativos o ITT tem atualmente?,,,no
+8,Qual foi o maior desafio enfrentado pelo ITT nos últimos cinco anos?,,,no
+9,[pergunta específica tirada de um trecho do documento],[o que o documento diz],[nome_do_arquivo.pdf p.N],yes

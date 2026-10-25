@@ -223,3 +223,9 @@ credentials/
 data/
 faiss_index/
 __pycache__/
+
+# Avaliação: PDFs, perguntas e respostas citam documentos do ITT
+eval_docs/
+faiss_index_eval/
+eval/questions.csv
+eval/results/
