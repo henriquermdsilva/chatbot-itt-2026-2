@@ -60,6 +60,7 @@ google-api-python-client==2.187.0
     # via google-generativeai
 google-auth==2.43.0
     # via
+    #   chatbot-itt-backend
     #   google-ai-generativelanguage
     #   google-api-core
     #   google-api-python-client
@@ -228,6 +229,7 @@ pyyaml==6.0.3
     #   uvicorn
 requests==2.32.5
     # via
+    #   chatbot-itt-backend
     #   google-api-core
     #   langchain
     #   langchain-community

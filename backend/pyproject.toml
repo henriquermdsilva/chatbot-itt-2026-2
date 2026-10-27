@@ -17,4 +17,14 @@ dependencies = [
   "pymupdf",
   "langgraph",
   "slowapi>=0.1.10",
+  "google-auth>=2.43.0",
+  "requests>=2.32.5",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -1,7 +1,4 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from functools import lru_cache
-from typing import List
-import os
 
 
 class Settings(BaseSettings):
@@ -11,6 +8,9 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "https://chatbot-itt.vercel.app"
     
     GOOGLE_API_KEY: str = ""
+
+    GOOGLE_CLIENT_ID: str = "961077150905-dsdb9plq43u7akdb4c77g3ai3ch1budm.apps.googleusercontent.com"
+    AUTH_DEV_MODE: bool = False # Aceita o "dev-token" do botão "Skip Login (Dev)"; nunca em produção
     
     LLM_MODEL: str = "gemini-2.5-flash"
     LLM_TEMPERATURE: float = 0.3
@@ -19,4 +19,4 @@ class Settings(BaseSettings):
     
     GOOGLE_DRIVE_FOLDER_ID: str = "" # ID da pasta (fica na URL do navegador)
     GOOGLE_CREDENTIALS_PATH: str = "credentials/service_account.json"
-    local_data_path: str = "data" # Onde salvar os arquivos temporariamente
+    LOCAL_DATA_PATH: str = "data" # Onde baixar os PDFs do Drive; a pasta é apagada e recriada a cada sincronização

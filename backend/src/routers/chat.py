@@ -14,7 +14,7 @@ from ..schemas import (
 )
 
 from ..services import ITTGraph
-from ..dependencies import get_graph
+from ..dependencies import get_graph, get_current_user_email
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ router = APIRouter(
     responses={
         200: {"description": "Successful response", "model": QueryResponse},
         400: {"description": "Bad request - invalid input", "model": ErrorResponse},
+        401: {"description": "Missing, invalid or expired login token", "model": ErrorResponse},
         429: {"description": "Too many requests", "model": ErrorResponse},
         500: {"description": "Internal server error", "model": ErrorResponse},
     },
@@ -44,10 +45,11 @@ router = APIRouter(
 async def query_response(
     request: Request,
     query: QueryRequest,
+    user_email: str = Depends(get_current_user_email),
     graph: ITTGraph = Depends(get_graph),
 ) -> QueryResponse:
     try:
-        logger.info(f"Processing query from user: {query.user_id}")
+        logger.info(f"Processing query from user: {user_email}")
 
         result = graph.invoke(query.message)
 
@@ -60,7 +62,7 @@ async def query_response(
             source_documents=source_documents
         )
 
-        logger.info(f"Query processed successfully for user: {query.user_id}")
+        logger.info(f"Query processed successfully for user: {user_email}")
         return response
 
     except Exception as e:

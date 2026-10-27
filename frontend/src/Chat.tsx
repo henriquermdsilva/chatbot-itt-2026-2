@@ -90,9 +90,14 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     try {
       const res = await fetch(`${API_URL}/chat/query`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ message: texto, user_id: email }),
       });
+
+      if (res.status === 401) {
+        onLogout();
+        return { texto: "Sua sessão expirou. Entre novamente.", fontes: [] };
+      }
 
       if (!res.ok) {
         const err = await res.json();
@@ -118,8 +123,14 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
 
     try {
       const res = await fetch(`${API_URL}/admin/sync-knowledge`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` }
       });
+
+      if (res.status === 401) {
+        onLogout();
+        return;
+      }
 
       if (!res.ok) throw new Error('Falha na sincronização');
 
