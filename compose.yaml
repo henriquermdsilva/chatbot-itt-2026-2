@@ -1,0 +1,42 @@
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.test.env
+    environment:
+      # Caminhos absolutos dentro do container: os relativos do .test.env
+      # dependem do diretorio de execucao.
+      FAISS_INDEX_PATH: /app/faiss_index_openwebui
+      GOOGLE_CREDENTIALS_PATH: /app/credentials/service_account.json
+      # A indexacao roda como comando explicito (docker compose run), nao no boot.
+      SYNC_ON_STARTUP: "false"
+    volumes:
+      - faiss_index:/app/faiss_index_openwebui
+      - ./backend/credentials:/app/credentials:ro
+    ports:
+      # Só nesta maquina: com AUTH_DEV_MODE=true, a API aceita o dev-token.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      # 5173 no host: e a origem liberada pelo CORS do backend.
+      - "127.0.0.1:5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  faiss_index:

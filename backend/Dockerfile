@@ -29,4 +29,4 @@ COPY --from=builder /app ./
 EXPOSE 8000
 
 # FastAPI app run
-CMD uv run uvicorn src.api:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}"
+CMD /app/.venv/bin/python -m uvicorn src.api:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}"

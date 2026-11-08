@@ -13,7 +13,7 @@ from ..schemas import (
     ErrorResponse
 )
 
-from ..services import ITTGraph
+from ..services import ITTGraph, IndexNotFoundError
 from ..dependencies import get_graph, get_current_user_email
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ router = APIRouter(
         401: {"description": "Missing, invalid or expired login token", "model": ErrorResponse},
         429: {"description": "Too many requests", "model": ErrorResponse},
         500: {"description": "Internal server error", "model": ErrorResponse},
+        503: {"description": "Documents not indexed yet", "model": ErrorResponse},
     },
 )
 @limiter.limit("5/minute")
@@ -51,7 +52,7 @@ async def query_response(
     try:
         logger.info(f"Processing query from user: {user_email}")
 
-        result = graph.invoke(query.message)
+        result = graph.invoke(query.message, history=[message.model_dump() for message in query.history])
 
         source_documents = [
             SourceDocument(**doc) for doc in result.get("source_documents", [])
@@ -65,9 +66,16 @@ async def query_response(
         logger.info(f"Query processed successfully for user: {user_email}")
         return response
 
+    except IndexNotFoundError as e:
+        logger.warning(f"Índice indisponível: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="A base de conhecimento ainda não foi indexada. Avise quem administra o sistema.",
+        )
+
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing query: {str(e)}",
+            detail="Não foi possível processar a pergunta. Tente novamente.",
         )

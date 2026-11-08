@@ -222,6 +222,7 @@ docs
 credentials/
 data/
 faiss_index/
+faiss_index_openwebui/
 __pycache__/
 
 # Avaliação: PDFs, perguntas e respostas citam documentos do ITT

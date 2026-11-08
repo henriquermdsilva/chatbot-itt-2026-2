@@ -110,4 +110,13 @@ def get_current_user_email(
     email = claims.get("email")
     if not email or not claims.get("email_verified"):
         raise _unauthorized("A conta Google precisa ter um e-mail verificado.")
+
+    domain = settings.ALLOWED_EMAIL_DOMAIN.lower()
+    email_domain = email.lower().rsplit("@", 1)[-1]
+    if domain and email_domain != domain:
+        logger.warning(f"Login recusado: domínio {email_domain} não é {domain}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso restrito a contas do ITT.",
+        )
     return email

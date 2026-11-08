@@ -1,12 +1,9 @@
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-import uvicorn
 import asyncio
 from contextlib import asynccontextmanager
 
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -24,12 +21,16 @@ async def startup_sync():
     print("Auto-Sync: Iniciando sincronização automática com Google Drive...")
     try:
         settings = get_settings()
-        if settings.GOOGLE_DRIVE_FOLDER_ID and settings.GOOGLE_API_KEY:
+        has_api_key = (
+            bool(settings.OPENWEBUI_API_KEY.get_secret_value())
+            if settings.LLM_PROVIDER == 'openwebui' else bool(settings.GOOGLE_API_KEY)
+        )
+        if settings.SYNC_ON_STARTUP and settings.GOOGLE_DRIVE_FOLDER_ID and has_api_key:
             vector_db = VectorDB(settings)
             await asyncio.to_thread(vector_db.refresh_knowledge_base)
             print("Auto-Sync: Memória recriada com sucesso! O Chat está pronto.")
         else:
-            print("Auto-Sync: Configurações do Drive incompletas. Pulando sincronização.")
+            print("Auto-Sync: Sincronizacao desativada ou configuracoes incompletas.")
     except Exception as e:
         print(f"Auto-Sync Falhou: {str(e)}")
 
@@ -54,8 +55,17 @@ app = FastAPI(
 )
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+
+# Substitui o handler do slowapi, que responde em inglês no campo "error":
+# o frontend mostra o campo "detail", como nos demais erros da API.
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded(*_: object) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Muitas perguntas em pouco tempo. Aguarde um minuto e tente de novo."},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,11 +92,9 @@ async def root():
     }
 
 
-if __name__ == "__main__":
-    uvicorn.run(
-        "api:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info",
-    )
+@app.get("/health", tags=["root"])
+async def health():
+    """
+    Liveness probe usado pelo healthcheck do Docker Compose.
+    """
+    return {"status": "ok"}

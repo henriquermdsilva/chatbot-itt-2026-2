@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "./ThemeContext";
 
 interface LoginProps {
@@ -7,23 +7,57 @@ interface LoginProps {
 
 export default function Login({ onLogin }: LoginProps) {
   const { darkMode } = useTheme();
+  const [googleError, setGoogleError] = useState(false);
   useEffect(() => {
-    /* @ts-ignore */
-    window.google?.accounts.id.initialize({
-      client_id: "961077150905-dsdb9plq43u7akdb4c77g3ai3ch1budm.apps.googleusercontent.com",
-      callback: (response: any) => {
-        const cred = response.credential;
-        const payload = JSON.parse(atob(cred.split(".")[1]));
-        onLogin(cred, payload.email);
-      },
-    });
+    const renderGoogleButton = () => {
+      /* @ts-ignore */
+      window.google.accounts.id.initialize({
+        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+          "961077150905-dsdb9plq43u7akdb4c77g3ai3ch1budm.apps.googleusercontent.com",
+        callback: (response: any) => {
+          const cred = response.credential;
+          const payload = JSON.parse(atob(cred.split(".")[1]));
+          onLogin(cred, payload.email);
+        },
+      });
 
+      /* @ts-ignore */
+      window.google.accounts.id.renderButton(document.getElementById("googleBtn"), {
+        theme: "filled_black",
+        size: "large",
+        width: 300,
+      });
+    };
+
+    // O script do Google carrega de forma assíncrona: na primeira visita ele ainda não 
+    // está pronto.
     /* @ts-ignore */
-    window.google?.accounts.id.renderButton(document.getElementById("googleBtn"), {
-      theme: "filled_black",
-      size: "large",
-      width: 300,
-    });
+    if (window.google?.accounts) {
+      renderGoogleButton();
+      return;
+    }
+    const script = document.getElementById("google-gsi");
+    if (!script) {
+      console.error('Script do Google com id="google-gsi" não encontrado no index.html.');
+      setGoogleError(true);
+      return;
+    }
+    // Sem "load" a tempo, o script falhou (rede, bloqueador) ou falhou antes desta tela 
+    // abrir.
+    const timeout = setTimeout(() => {
+      console.error("O script de login do Google não carregou em 10 s.");
+      setGoogleError(true);
+    }, 10000);
+    const onLoad = () => {
+      clearTimeout(timeout);
+      setGoogleError(false);
+      renderGoogleButton();
+    };
+    script.addEventListener("load", onLoad);
+    return () => {
+      clearTimeout(timeout);
+      script.removeEventListener("load", onLoad);
+    };
   }, []);
 
   return (
@@ -40,6 +74,14 @@ export default function Login({ onLogin }: LoginProps) {
         <div style={{...googleBtnContainer, background: darkMode ? "rgba(220, 38, 38, 0.05)" : "rgba(220, 38, 38, 0.08)", borderColor: darkMode ? "rgba(220, 38, 38, 0.1)" : "rgba(220, 38, 38, 0.15)"}}>
           <div id="googleBtn" />
         </div>
+
+        {googleError && (
+          <p style={{...subtitle, color: darkMode ? "#fca5a5" : "#b91c1c", opacity: 1}}>
+            Não foi possível carregar o login do Google. Recarregue a página; se continuar,
+            verifique se uma extensão de privacidade, um bloqueador ou a rede está
+            bloqueando accounts.google.com.
+          </p>
+        )}
 
         {/* Skip para desenvolvimento local */}
         {window.location.hostname === 'localhost' && (

@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "./ThemeContext";
 
-// URL do backend: VITE_API_URL em frontend/.env (local) ou nas variáveis da Vercel (produção). Sem a variável, usa o backend local.
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
 interface ChatProps {
   idToken: string;
@@ -14,6 +13,7 @@ interface ChatProps {
 interface SourceDocument {
   source: string;
   page: number | null;
+  sheet?: string | null;
   snippet: string;
 }
 
@@ -28,7 +28,17 @@ const horaAtual = () =>
   new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 export default function Chat({ idToken, email, onLogout }: ChatProps) {
-  const [mensagens, setMensagens] = useState<Mensagem[]>([]);
+  const historyKey = `chat_history:${email}`;
+  // O histórico vale só enquanto a aba está aberta: as respostas podem ter dados de alunos
+  // e não devem ficar no computador. Remove também o histórico salvo pelas versões antigas.
+  const [mensagens, setMensagens] = useState<Mensagem[]>(() => {
+    localStorage.removeItem(historyKey);
+    try {
+      return JSON.parse(sessionStorage.getItem(historyKey) || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [pergunta, setPergunta] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -36,24 +46,16 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
 
   // Estado para o botão de sincronização
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error' | 'forbidden'>('idle');
 
-  // Carregar histórico do localStorage ao montar
   useEffect(() => {
-    const saved = localStorage.getItem('chat_history');
-    if (saved) {
-      try {
-        setMensagens(JSON.parse(saved));
-      } catch (e) {
-        console.error('Erro ao carregar histórico:', e);
-      }
-    }
-  }, []);
+    sessionStorage.setItem(historyKey, JSON.stringify(mensagens));
+  }, [mensagens, historyKey]);
 
-  // Salvar histórico em localStorage sempre que mensagens mudam
-  useEffect(() => {
-    localStorage.setItem('chat_history', JSON.stringify(mensagens));
-  }, [mensagens]);
+  const sair = () => {
+    sessionStorage.removeItem(historyKey);
+    onLogout();
+  };
 
 
   const enviarPergunta = async () => {
@@ -78,7 +80,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     setMensagens((m) =>
       m.map((msg) =>
         msg === loadingMsg
-          ? { autor: "assistant" as const, texto, fontes, timestamp: horaAtual() }
+          ? { ...msg, autor: "assistant" as const, texto, fontes, timestamp: horaAtual() }
           : msg
       )
     );
@@ -91,7 +93,14 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
       const res = await fetch(`${API_URL}/chat/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ message: texto, user_id: email }),
+        body: JSON.stringify({
+          message: texto,
+          history: mensagens.slice(-12).map((message) => ({
+            role: message.autor,
+            content: message.texto.slice(0, 5000),
+            sources: Array.from(new Set((message.fontes ?? []).map((fonte) => fonte.source))),
+          })),
+        }),
       });
 
       if (res.status === 401) {
@@ -132,6 +141,12 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
         return;
       }
 
+      if (res.status === 403) {
+        setSyncStatus('forbidden');
+        setTimeout(() => setSyncStatus('idle'), 3000);
+        return;
+      }
+
       if (!res.ok) throw new Error('Falha na sincronização');
 
       setSyncStatus('success');
@@ -164,20 +179,33 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
               onClick={sincronizarConhecimento}
               style={{
                 ...syncBtn,
-                background: syncStatus === 'error' ? '#ef4444' :
+                background: syncStatus === 'error' || syncStatus === 'forbidden' ? '#ef4444' :
                            syncStatus === 'success' ? '#22c55e' : '#dc2626',
                 opacity: isSyncing ? 0.7 : 1,
                 cursor: isSyncing ? 'wait' : 'pointer'
               }}
-              title="Atualizar base de conhecimento com arquivos do Google Drive"
+              title="Atualizar base de conhecimento com os documentos configurados"
             >
               {isSyncing ? 'Atualizando...' :
                syncStatus === 'success' ? 'Docs Atualizados!' :
                syncStatus === 'error' ? 'Erro' :
+               syncStatus === 'forbidden' ? 'Sem permissão' :
                'Atualizar Docs'}
             </button>
 
-            <button onClick={onLogout} style={{...logoutBtn, background: darkMode ? '#2b2b2e' : '#e5e7eb', color: darkMode ? '#e5e7eb' : '#1a1a1d'}}>Sair</button>
+            <button
+              onClick={() => setMensagens([])}
+              disabled={isLoading}
+              style={{...logoutBtn, background: darkMode ? '#2b2b2e' : '#e5e7eb', 
+                color: darkMode ? '#e5e7eb' : '#1a1a1d', opacity: isLoading ? 0.5 : 1}}
+              title="Apagar esta conversa e começar outra"
+            >
+              Nova conversa
+            </button>
+
+            <button onClick={sair} style={{...logoutBtn, 
+              background: darkMode ? '#2b2b2e' : '#e5e7eb', 
+              color: darkMode ? '#e5e7eb' : '#1a1a1d'}}>Sair</button>
           </div>
         </header>
 
@@ -233,10 +261,11 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
               <span style={{fontSize: '11px', color: darkMode ? '#64748b' : '#9ca3af', marginTop: '4px', marginRight: m.autor === "user" ? '0px' : 'auto', marginLeft: m.autor === "user" ? 'auto' : '0px'}}>{m.timestamp}</span>
 
               {m.autor === "assistant" && m.fontes && m.fontes.length > 0 && (
-                <div style={{...sourcesCard, background: darkMode ? '#2a2a2d' : '#f3f4f6', borderColor: darkMode ? '#3a3a3d' : '#e5e7eb'}}>
-                  <div style={{...sourcesHeader, color: darkMode ? '#cbd5e1' : '#4b5563'}}>
-                    📄 Fontes Utilizadas:
-                  </div>
+                <details style={{...sourcesCard, background: darkMode ? '#2a2a2d' : '#f3f4f6', 
+                borderColor: darkMode ? '#3a3a3d' : '#e5e7eb'}}>
+                  <summary style={{...sourcesHeader, color: darkMode ? '#cbd5e1' : '#4b5563'}}>
+                    📄 Ver fontes
+                  </summary>
                   <div style={sourcesList}>
                     {m.fontes.map((fonte, idx) => (
                       <div key={idx} style={{...sourceItem, color: darkMode ? '#cbd5e1' : '#4b5563'}}>
@@ -244,11 +273,12 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
                         <span style={{...sourceName, color: darkMode ? '#cbd5e1' : '#4b5563'}}>
                           {fonte.source}
                           {fonte.page && <span style={sourcePage}> (página {fonte.page})</span>}
+                          {fonte.sheet && <span style={sourcePage}> (aba {fonte.sheet})</span>}
                         </span>
                       </div>
                     ))}
                   </div>
-                </div>
+                </details>
               )}
             </div>
           ))}
@@ -622,6 +652,7 @@ const sourcesCard = {
 
 const sourcesHeader = {
   color: "#cbd5e1",
+  cursor: "pointer",
   fontWeight: 600 as const,
   marginBottom: "8px",
   fontSize: "12px",

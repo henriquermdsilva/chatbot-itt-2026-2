@@ -83,7 +83,6 @@ Modelos Principais:
 
 QueryRequest:
 - message (str, obrigatório): Pergunta do usuário com validação de comprimento (1-5000 caracteres)
-- user_id (str, opcional): Identificador único do usuário para rastreamento
 
 QueryResponse:
 - response (str): Resposta gerada pela IA
@@ -238,8 +237,7 @@ Processamento:
 Passo 1: Cliente envia requisição POST /chat/query
 
 {
-  "message": "Como solicitar certificado?",
-  "user_id": "user_123"
+  "message": "Como solicitar certificado?"
 }
 
 Passo 2: Router (chat.py) valida a requisição
@@ -294,7 +292,6 @@ Passo 6: Cliente recebe JSON validado
 
 QueryRequest:
 - message: requerido, 1-5000 caracteres, sem espaços em branco apenas
-- user_id: opcional, string
 
 5.2 Validação de Saída
 
@@ -447,7 +444,7 @@ logging é configurado em cada router para rastrear:
 
 13.2 Rastreamento de Usuários
 
-user_id é registrado em logs para correlação de requisições.
+O e-mail validado no login é registrado em logs para correlação de requisições.
 
 14. Exemplos de Uso
 
@@ -456,8 +453,7 @@ user_id é registrado em logs para correlação de requisições.
 curl -X POST "http://localhost:8000/chat/query" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "Quais são os horários de funcionamento?",
-    "user_id": "user_001"
+    "message": "Quais são os horários de funcionamento?"
   }'
 
 14.2 Request com Python
@@ -467,8 +463,7 @@ import requests
 response = requests.post(
     "http://localhost:8000/chat/query",
     json={
-        "message": "Como faço para renovar minha matrícula?",
-        "user_id": "user_002"
+        "message": "Como faço para renovar minha matrícula?"
     }
 )
 

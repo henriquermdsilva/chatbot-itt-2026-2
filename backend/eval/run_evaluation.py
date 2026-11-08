@@ -1,7 +1,7 @@
 """
 Roda as perguntas de avaliação pelo fluxo do chatbot e salva as respostas em CSV.
 
-Uso, dentro de backend/ (precisa só de GOOGLE_API_KEY no .env):
+Uso, dentro de backend/ (precisa só da chave do provedor no .env):
     uv run python -m eval.run_evaluation --docs eval_docs
 """
 import argparse
@@ -65,7 +65,7 @@ def main() -> None:
     parser.add_argument("--docs", type=Path, default=Path("eval_docs"), help="Pasta com os PDFs a indexar")
     parser.add_argument("--index", default="faiss_index_eval", help="Pasta do índice FAISS da avaliação")
     parser.add_argument("--reindex", action="store_true", help="Recria o índice mesmo que ele já exista")
-    parser.add_argument("--model", help="Modelo do Gemini (padrão: LLM_MODEL do .env ou gemini-2.5-flash)")
+    parser.add_argument("--model", help="Modelo (padrão: LLM_MODEL do .env)")
     parser.add_argument("--output", type=Path, help="CSV de saída (padrão: eval/results/<modelo>.csv)")
     parser.add_argument("--pause", type=float, default=10.0, help="Segundos entre perguntas, para não estourar a cota")
     parser.add_argument("--only-errors", action="store_true",
@@ -77,7 +77,9 @@ def main() -> None:
     if args.model:
         overrides["LLM_MODEL"] = args.model
     settings = Settings(**overrides)
-    if not settings.GOOGLE_API_KEY:
+    if settings.LLM_PROVIDER == "openwebui" and not settings.OPENWEBUI_API_KEY.get_secret_value():
+        sys.exit("OPENWEBUI_API_KEY vazia. Crie backend/.env a partir do .env.example.")
+    if settings.LLM_PROVIDER == "google" and not settings.GOOGLE_API_KEY:
         sys.exit("GOOGLE_API_KEY vazia. Crie backend/.env a partir do .env.example.")
 
     output = args.output or Path("eval/results") / f"{settings.LLM_MODEL}.csv"

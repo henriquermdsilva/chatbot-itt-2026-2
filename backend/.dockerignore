@@ -1,13 +1,17 @@
-# Segredos: entram no container por variável de ambiente, nunca na imagem
+.venv
+__pycache__
+*.pyc
+*.pyo
 .env
 .env.*
+.test.env
+test.env
 credentials/
-
-# Ambiente local: a imagem cria o próprio .venv com uv sync
-.venv/
-__pycache__/
-*.pyc
-
-# Gerados em tempo de execução (PDFs baixados do Drive e índice FAISS)
+faiss_index*
 data/
-faiss_index/
+eval_docs/
+eval/questions.csv
+eval/results/
+tests/
+.pytest_cache
+.uv-cache

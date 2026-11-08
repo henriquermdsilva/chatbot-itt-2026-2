@@ -12,7 +12,7 @@ Vitor Ferreira dos Santos de Lacerda - 231524
 
 Requer Python 3.12, [uv](https://docs.astral.sh/uv/) e Node.js.
 
-1. Em `backend/`, copie `.env.example` para `.env` e preencha `GOOGLE_API_KEY` e `GOOGLE_DRIVE_FOLDER_ID`
+1. Em `backend/`, copie `.env.example` para `.env` e preencha `OPENWEBUI_API_KEY` e `GOOGLE_DRIVE_FOLDER_ID`
 2. Salve o JSON da Service Account em `backend/credentials/service_account.json`
 3. Em `frontend/`, copie `.env.example` para `.env`
 4. Na raiz: `npm install` e `npm run dev`. Ctrl+C encerra os dois.
@@ -20,3 +20,11 @@ Requer Python 3.12, [uv](https://docs.astral.sh/uv/) e Node.js.
 **Separadamente:**
 - Backend, em `backend/`: `uv sync` e `uv run uvicorn src.api:app --reload --port 8000`
 - Frontend, em `frontend/`: `npm install` e `npm run dev`
+
+
+## Executar com a API da Unicamp
+
+Veja o [guia para executar o chatbot com Google Drive](RUN_CHATBOT.md) para configurar
+o acesso à pasta do projeto, indexar os documentos e iniciar o backend e a interface.
+
+Veja o [setup completo da API](backend/README.md) para configurar sua chave, indexar PDFs locais e iniciar o backend e a interface.
