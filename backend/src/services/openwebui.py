@@ -3,8 +3,13 @@
 import httpx
 from langchain_core.embeddings import Embeddings
 from langchain_core.runnables import RunnableLambda
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..config import Settings
+
+
+class RateLimitError(RuntimeError):
+    pass
 
 
 def post(settings: Settings, path: str, payload: dict) -> dict:
@@ -20,7 +25,8 @@ def post(settings: Settings, path: str, payload: dict) -> dict:
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as exc:
-        raise RuntimeError(
+        error = RateLimitError if exc.response.status_code == 429 else RuntimeError
+        raise error(
             f'OpenWebUI retornou HTTP {exc.response.status_code}. '
             'Verifique a chave, o modelo e as permissoes do endpoint.'
         ) from None
@@ -64,10 +70,20 @@ class OpenWebUIEmbeddings(Embeddings):
             raise RuntimeError('OpenWebUI retornou embeddings invalidos.')
         return vectors
 
+    # Só a indexação espera: em uma pergunta do chat, é melhor mostrar o erro logo
+    @retry(
+        retry=retry_if_exception_type(RateLimitError), reraise=True,
+        wait=wait_exponential(multiplier=5, max=60), stop=stop_after_attempt(5),
+        before_sleep=lambda _: print('Servidor ocupado (HTTP 429). Aguardando para tentar de novo.', 
+                                     flush=True),
+    )
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return self._embed(['search_document: ' + text for text in texts])
+
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors = []
         for start in range(0, len(texts), 32):
-            vectors.extend(self._embed(['search_document: ' + t for t in texts[start:start + 32]]))
+            vectors.extend(self._embed_batch(texts[start:start + 32]))
         return vectors
 
     def embed_query(self, text: str) -> list[float]:

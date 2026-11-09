@@ -249,6 +249,7 @@ starlette==0.50.0
     # via fastapi
 tenacity==8.5.0
     # via
+    #   chatbot-itt-backend
     #   langchain
     #   langchain-community
     #   langchain-core
