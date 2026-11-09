@@ -1,3 +1,4 @@
+import inspect
 from unittest.mock import Mock
 
 import pytest
@@ -9,7 +10,8 @@ from src import dependencies
 from src.api import app
 from src.config import Settings
 from src.dependencies import get_graph, get_settings, get_vector_db
-from src.routers.chat import limiter
+from src.routers.admin import sync_knowledge_base
+from src.routers.chat import limiter, query_response
 from src.services import IndexNotFoundError, VectorDB
 
 VALID_TOKEN = "token-valido"
@@ -116,6 +118,12 @@ def test_chat_with_valid_token_returns_answer(client):
 
 def test_unverified_email_returns_401(make_client):
     assert ask(make_client(verify=unverified_email), VALID_TOKEN).status_code == 401
+
+
+def test_slow_routes_do_not_block_the_api():
+    # Rotas "def" rodam em outra thread; "async def" com código síncrono travaria a API.
+    assert not inspect.iscoroutinefunction(query_response)
+    assert not inspect.iscoroutinefunction(sync_knowledge_base)
 
 
 def test_rate_limit_returns_429_with_detail_in_portuguese(client):

@@ -42,8 +42,9 @@ router = APIRouter(
         503: {"description": "Documents not indexed yet", "model": ErrorResponse},
     },
 )
+# "def" de propósito: o FastAPI roda rotas síncronas em outra thread, e o grafo bloquearia a API.
 @limiter.limit("5/minute")
-async def query_response(
+def query_response(
     request: Request,
     query: QueryRequest,
     user_email: str = Depends(get_current_user_email),
