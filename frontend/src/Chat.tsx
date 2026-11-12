@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "./ThemeContext";
 
@@ -26,6 +26,46 @@ interface Mensagem {
 
 const horaAtual = () =>
   new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+/** Botão que faz toggle da visibilidade das fontes de uma mensagem. */
+function SourcesToggle({ fontes, darkMode }: { fontes: SourceDocument[]; darkMode: boolean }) {
+  const [open, setOpen] = useState(false);
+
+  const toggle = useCallback(() => setOpen((v) => !v), []);
+
+  return (
+    <div style={{ ...sourcesCard, background: darkMode ? '#2a2a2d' : '#f3f4f6', borderColor: darkMode ? '#3a3a3d' : '#e5e7eb' }}>
+      <button
+        onClick={toggle}
+        style={{
+          ...sourcesToggleBtn,
+          color: darkMode ? '#cbd5e1' : '#4b5563',
+          background: 'transparent',
+        }}
+        aria-expanded={open}
+        title={open ? 'Ocultar fontes' : 'Ver fontes'}
+      >
+        <span style={sourcesToggleIcon}>{open ? '▾' : '▸'}</span>
+        📄 {open ? 'Ocultar fontes' : `Ver fontes (${fontes.length})`}
+      </button>
+
+      {open && (
+        <div style={sourcesList}>
+          {fontes.map((fonte, idx) => (
+            <div key={idx} style={{ ...sourceItem, color: darkMode ? '#cbd5e1' : '#4b5563' }}>
+              <span style={{ ...sourceIcon, color: darkMode ? '#64748b' : '#9ca3af' }}>•</span>
+              <span style={{ ...sourceName, color: darkMode ? '#cbd5e1' : '#4b5563' }}>
+                {fonte.source}
+                {fonte.page && <span style={sourcePage}> (página {fonte.page})</span>}
+                {fonte.sheet && <span style={sourcePage}> (aba {fonte.sheet})</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Chat({ idToken, email, onLogout }: ChatProps) {
   const historyKey = `chat_history:${email}`;
@@ -261,24 +301,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
               <span style={{fontSize: '11px', color: darkMode ? '#64748b' : '#9ca3af', marginTop: '4px', marginRight: m.autor === "user" ? '0px' : 'auto', marginLeft: m.autor === "user" ? 'auto' : '0px'}}>{m.timestamp}</span>
 
               {m.autor === "assistant" && m.fontes && m.fontes.length > 0 && (
-                <details style={{...sourcesCard, background: darkMode ? '#2a2a2d' : '#f3f4f6', 
-                borderColor: darkMode ? '#3a3a3d' : '#e5e7eb'}}>
-                  <summary style={{...sourcesHeader, color: darkMode ? '#cbd5e1' : '#4b5563'}}>
-                    📄 Ver fontes
-                  </summary>
-                  <div style={sourcesList}>
-                    {m.fontes.map((fonte, idx) => (
-                      <div key={idx} style={{...sourceItem, color: darkMode ? '#cbd5e1' : '#4b5563'}}>
-                        <span style={{...sourceIcon, color: darkMode ? '#64748b' : '#9ca3af'}}>•</span>
-                        <span style={{...sourceName, color: darkMode ? '#cbd5e1' : '#4b5563'}}>
-                          {fonte.source}
-                          {fonte.page && <span style={sourcePage}> (página {fonte.page})</span>}
-                          {fonte.sheet && <span style={sourcePage}> (aba {fonte.sheet})</span>}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </details>
+                <SourcesToggle fontes={m.fontes} darkMode={darkMode} />
               )}
             </div>
           ))}
@@ -658,6 +681,26 @@ const sourcesHeader = {
   fontSize: "12px",
   textTransform: "uppercase" as const,
   letterSpacing: "0.5px",
+};
+
+const sourcesToggleBtn = {
+  display: "flex",
+  alignItems: "center",
+  gap: "6px",
+  border: "none",
+  cursor: "pointer",
+  fontWeight: 600 as const,
+  fontSize: "12px",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.5px",
+  padding: "0 0 6px 0",
+  width: "100%",
+  textAlign: "left" as const,
+};
+
+const sourcesToggleIcon = {
+  fontSize: "10px",
+  lineHeight: 1,
 };
 
 const sourcesList = {
