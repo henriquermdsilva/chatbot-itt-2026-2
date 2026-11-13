@@ -8,7 +8,7 @@ services:
       FAISS_INDEX_PATH: /app/faiss_index_openwebui
       GOOGLE_CREDENTIALS_PATH: /app/credentials/service_account.json
       # A indexacao roda como comando explicito (docker compose run), nao no boot.
-      SYNC_ON_STARTUP: "false"
+      SYNC_ON_STARTUP: "true"
     volumes:
       - faiss_index:/app/faiss_index_openwebui
       - ./backend/credentials:/app/credentials:ro
