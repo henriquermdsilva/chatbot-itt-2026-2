@@ -82,7 +82,9 @@ def main() -> None:
     if settings.LLM_PROVIDER == "google" and not settings.GOOGLE_API_KEY:
         sys.exit("GOOGLE_API_KEY vazia. Crie backend/.env a partir do .env.example.")
 
-    output = args.output or Path("eval/results") / f"{settings.LLM_MODEL}.csv"
+    # Nomes como "gemma3:12b": no Windows, ":" no nome grava o CSV num fluxo oculto do arquivo.
+    model_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in settings.LLM_MODEL)
+    output = args.output or Path("eval/results") / f"{model_name}.csv"
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists() and not (args.only_errors or args.overwrite):
         sys.exit(f"{output} já existe. Use --only-errors para completar, --overwrite para substituir "

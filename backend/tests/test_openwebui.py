@@ -213,6 +213,42 @@ class OpenWebUITest(unittest.TestCase):
             if refused:
                 self.assertEqual(result['source_documents'], [])
 
+    @patch('tenacity.nap.time.sleep')
+    @patch('src.services.openwebui.httpx.post')
+    def test_indexing_waits_and_retries_on_rate_limit(self, post, sleep):
+        post.side_effect = [self.reply({}, status=429), self.reply({}, status=429),
+                            self.reply({'embeddings': [[1.0, 0.0]]})]
+        self.assertEqual(OpenWebUIEmbeddings(self.settings).embed_documents(['documento']), 
+                         [[1.0, 0.0]])
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5, 10])
+
+    @patch('tenacity.nap.time.sleep')
+    @patch('src.services.openwebui.httpx.post')
+    def test_indexing_does_not_retry_other_errors(self, post, sleep):
+        post.return_value = self.reply({}, status=401)
+        with self.assertRaisesRegex(RuntimeError, '401'):
+            OpenWebUIEmbeddings(self.settings).embed_documents(['documento'])
+        post.assert_called_once()
+        sleep.assert_not_called()
+
+    @patch('tenacity.nap.time.sleep')
+    @patch('src.services.openwebui.httpx.post')
+    def test_indexing_gives_up_after_the_last_retry(self, post, sleep):
+        post.side_effect = lambda *_, **__: self.reply({}, status=429)
+        with self.assertRaisesRegex(RuntimeError, '429'):
+            OpenWebUIEmbeddings(self.settings).embed_documents(['documento'])
+        self.assertEqual(post.call_count, 5)
+        self.assertEqual(sleep.call_count, 4)
+
+    @patch('tenacity.nap.time.sleep')
+    @patch('src.services.openwebui.httpx.post')
+    def test_questions_do_not_wait_on_rate_limit(self, post, sleep):
+        post.return_value = self.reply({}, status=429)
+        with self.assertRaisesRegex(RuntimeError, '429'):
+            OpenWebUIEmbeddings(self.settings).embed_query('pergunta')
+        post.assert_called_once()
+        sleep.assert_not_called()
+
     @patch('src.services.openwebui.httpx.post')
     def test_embedding_batches_and_query_prefix(self, post):
         post.side_effect = [self.reply({'embeddings': [[1.0, 0.0]] * n}) for n in (32, 1, 1)]
