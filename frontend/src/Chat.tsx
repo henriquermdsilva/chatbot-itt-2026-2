@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "./ThemeContext";
 
@@ -41,6 +41,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
   });
   const [pergunta, setPergunta] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const requestRef = useRef<AbortController | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const { darkMode } = useTheme();
 
@@ -88,10 +89,14 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     setIsLoading(false);
   };
 
-  const consultarBackend = async (texto: string): Promise<{ texto: string; fontes: SourceDocument[] }> => {
+  const pararResposta = () => requestRef.current?.abort();
+
+  const consultarBackend = async (texto: string): Promise<{ texto: string; fontes?: SourceDocument[] }> => {
+    requestRef.current = new AbortController();
     try {
       const res = await fetch(`${API_URL}/chat/query`, {
         method: "POST",
+        signal: requestRef.current.signal,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           message: texto,
@@ -105,12 +110,12 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
 
       if (res.status === 401) {
         onLogout();
-        return { texto: "Sua sessão expirou. Entre novamente.", fontes: [] };
+        return { texto: "Sua sessão expirou. Entre novamente." };
       }
 
       if (!res.ok) {
         const err = await res.json();
-        return { texto: `Erro do servidor: ${err.detail ?? "Desconhecido"}`, fontes: [] };
+        return { texto: `Erro do servidor: ${err.detail ?? "Desconhecido"}` };
       }
 
       const data = await res.json();
@@ -119,7 +124,13 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
         fontes: data.source_documents ?? [],
       };
     } catch (e) {
-      return { texto: "Erro de conexão com o servidor. " + e, fontes: [] };
+      if (requestRef.current?.signal.aborted) {
+        return { texto: "Resposta interrompida." };
+      }
+      console.error(e);
+      return { texto: "Não foi possível falar com o servidor. Verifique a conexão e tente de novo." };
+    } finally {
+      requestRef.current = null;
     }
   };
 
@@ -305,11 +316,11 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
             />
           </button>
           <button
-            style={{ ...sendBtn, background: darkMode ? '#dc2626' : '#b91c1c', opacity: isLoading ? 0.5 : 1 }}
-            onClick={enviarPergunta}
-            disabled={isLoading}
+            style={{ ...sendBtn, background: darkMode ? '#dc2626' : '#b91c1c' }}
+            onClick={isLoading ? pararResposta : enviarPergunta}
+            title={isLoading ? "Interromper a resposta" : undefined}
           >
-            {isLoading ? "Processando..." : "Enviar"}
+            {isLoading ? "Parar" : "Enviar"}
           </button>
         </div>
       </div>
