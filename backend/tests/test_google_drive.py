@@ -184,7 +184,8 @@ class GoogleDriveTest(unittest.TestCase):
                 self.assertIn('Fulano Souza--', doc.metadata['source'])
 
             self.assertIn('Fulano Silva', database.query('Como está o Fulano Silva?')[0].page_content)
-            self.assertTrue(database.query('Como está a Sicrana?'))
+            for doc in database.query('Como está a Sicrana?'):
+                self.assertIn('Sicrana Lima--', doc.metadata['source'])
             self.assertTrue(database.query('Quem compõe a diretoria?'))
             self.assertTrue(database.query('Quem são os mentores de 2026?'))
 

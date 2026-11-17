@@ -75,8 +75,7 @@ class VectorDB:
             candidates = sorted(name for name, matched in people.items() if matched == best)
             if len(candidates) > 1:
                 raise AmbiguousPersonError(candidates)
-            if best >= 2:
-                matches = {source: best for source in people_sources[candidates[0]]}
+            matches = {source: best for source in people_sources[candidates[0]]}
 
         if matches:
             longest = max(matches.values())
