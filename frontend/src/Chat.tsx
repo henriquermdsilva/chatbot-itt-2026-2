@@ -22,6 +22,7 @@ interface Mensagem {
   texto: string;
   fontes?: SourceDocument[];
   timestamp: string;
+  erro?: boolean;
 }
 
 const horaAtual = () =>
@@ -76,12 +77,12 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     setMensagens((m) => [...m, loadingMsg]);
     setIsLoading(true);
 
-    const { texto, fontes } = await consultarBackend(perguntaTexto);
+    const resposta = await consultarBackend(perguntaTexto);
 
     setMensagens((m) =>
       m.map((msg) =>
         msg === loadingMsg
-          ? { ...msg, autor: "assistant" as const, texto, fontes, timestamp: horaAtual() }
+          ? { ...msg, ...resposta, autor: "assistant" as const, timestamp: horaAtual() }
           : msg
       )
     );
@@ -91,7 +92,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
 
   const pararResposta = () => requestRef.current?.abort();
 
-  const consultarBackend = async (texto: string): Promise<{ texto: string; fontes?: SourceDocument[] }> => {
+  const consultarBackend = async (texto: string): Promise<Pick<Mensagem, "texto" | "fontes" | "erro">> => {
     requestRef.current = new AbortController();
     try {
       const res = await fetch(`${API_URL}/chat/query`, {
@@ -100,7 +101,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           message: texto,
-          history: mensagens.slice(-12).map((message) => ({
+          history: mensagens.filter((message) => !message.erro).slice(-12).map((message) => ({
             role: message.autor,
             content: message.texto.slice(0, 5000),
             sources: Array.from(new Set((message.fontes ?? []).map((fonte) => fonte.source))),
@@ -110,12 +111,12 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
 
       if (res.status === 401) {
         onLogout();
-        return { texto: "Sua sessão expirou. Entre novamente." };
+        return { texto: "Sua sessão expirou. Entre novamente.", erro: true };
       }
 
       if (!res.ok) {
         const err = await res.json();
-        return { texto: `Erro do servidor: ${err.detail ?? "Desconhecido"}` };
+        return { texto: `Erro do servidor: ${err.detail ?? "Desconhecido"}`, erro: true };
       }
 
       const data = await res.json();
@@ -125,10 +126,10 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
       };
     } catch (e) {
       if (requestRef.current?.signal.aborted) {
-        return { texto: "Resposta interrompida." };
+        return { texto: "Resposta interrompida.", erro: true };
       }
       console.error(e);
-      return { texto: "Não foi possível falar com o servidor. Verifique a conexão e tente de novo." };
+      return { texto: "Não foi possível falar com o servidor. Verifique a conexão e tente de novo.", erro: true };
     } finally {
       requestRef.current = null;
     }
