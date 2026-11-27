@@ -4,7 +4,7 @@ import re
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import AIMessage, HumanMessage
 
-from .spreadsheets import asks_about_schooling
+from .spreadsheets import asks_about_schooling, explicit_sheet_query, sheet_answer
 from .chains import get_triage_chain, get_rag_chain
 from .vectorDB import VectorDB, StudentQueryError
 from ..config import Settings
@@ -39,6 +39,9 @@ class ITTGraph:
     
     def _node_triage(self, state: AgentState) -> AgentState:
         question = state.get("question", "")
+        direct = explicit_sheet_query(question)
+        if direct:
+            return {"triage": direct}
         messages = [
             (HumanMessage if message['role'] == 'user' else AIMessage)(content=message['content'])
             for message in state.get('history', [])
@@ -108,7 +111,10 @@ class ITTGraph:
         text = ""
         if related_docs:
             self._prepare_docs(related_docs)
-            text = (self.rag_chain.invoke({"input": question, "context": related_docs}) or "").strip()
+            if triage.get('resposta_direta'):
+                text = sheet_answer(related_docs, triage['consulta_ficha'])
+            else:
+                text = (self.rag_chain.invoke({"input": question, "context": related_docs}) or "").strip()
 
         if not text or re.search(r'n[aã]o_encontrado', text, re.IGNORECASE):
             return {"answer": "Não encontrei essa informação nos documentos.", "citations": [],
@@ -209,6 +215,12 @@ class ITTGraph:
 
         # 3. auto_resolve: busca no VectorDB (síncrona)
         triage = state.get("triage", {})
+        if triage.get('resposta_direta'):
+            result = self._node_auto_resolve(state)
+            yield {"type": "sources", "data": result["citations"]}
+            yield {"type": "token", "data": result["answer"]}
+            yield {"type": "done"}
+            return
         resolved_question = triage.get("pergunta_contextualizada") or question
 
         try:

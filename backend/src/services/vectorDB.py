@@ -67,7 +67,7 @@ def _student_lookup(docs, lookup):
         left, top = min(r[0] for r in bounds), min(r[1] for r in bounds)
         right, bottom = max(r[2] for r in bounds), max(r[3] for r in bounds)
         cells = f'{get_column_letter(left)}{top}:{get_column_letter(right)}{bottom}'
-        metadata = {**rows[0].metadata, 'cells': cells}
+        metadata = {**rows[0].metadata, 'cells': cells, 'resultado_vazio': True}
         result.append(Document(page_content=empty, metadata=metadata))
     return result
 

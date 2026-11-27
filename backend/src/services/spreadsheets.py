@@ -15,6 +15,54 @@ def normalize(text: object) -> str:
     return ' '.join(re.findall(r'[a-z0-9]+', text))
 
 
+def explicit_sheet_query(question):
+    """Consultas individuais sem filtros adicionais, resolvidas com os registros completos."""
+    text = normalize(question)
+    person = r"(?P<name>[a-z]+(?: [a-z]+)*?)"
+    alura = r"(?:aba )?(?:dados ?alura|alura)"
+    if re.search(rf"\b{alura}\b", text):
+        request = re.sub(rf"^(?:segundo |conforme |n[ao] )?(?:a )?{alura} ", "", text)
+        request = re.sub(rf" (?:n[ao]|d[ao]) {alura}$", "", request)
+        match = re.fullmatch(
+            rf"quantos cursos (?:[ao] )?{person} (?:iniciou|comecou|concluiu|finalizou)"
+            r"(?: quantos (?:concluiu|finalizou))?(?: e quantas horas (?:consumiu|estudou))?",
+            request,
+        )
+        lookup = 'resumo_cursos'
+    else:
+        request = re.sub(r"^(?:segundo |conforme )(?:o )?scorecard ", "", text)
+        request = re.sub(r" no scorecard$", "", request)
+        request = re.sub(r" (?:nas|as|em) reunioes$", "", request)
+        match = re.fullmatch(
+            rf"(?:em )?quais semanas (?:o scorecard )?(?:registra|registrou|mostra|indica) "
+            rf"(?:explicitamente )?(?:uma )?faltas? (?:da|do|de) {person}", request,
+        ) or re.fullmatch(rf"(?:em )?quais semanas (?:[ao] )?{person} (?:faltou|esteve ausente)", request)
+        lookup = 'semanas_com_falta'
+    if not match:
+        return None
+    name = re.sub(r"^(?:alun[oa]|estudante) ", "", match['name'])
+    words = name.split()
+    if (words[0] in {'de', 'da', 'do', 'ela', 'ele', 'aluna', 'aluno', 'estudante', 'turma'}
+            or set(words) & {'em', 'na', 'no', 'entre', 'durante', 'sobre', 'apenas', 'somente'}):
+        return None
+    return {'decisao': 'AUTO_RESOLVER', 'aluno': name, 'consulta_ficha': lookup, 'resposta_direta': True}
+
+
+def sheet_answer(docs, lookup):
+    if lookup == 'resumo_cursos':
+        summaries = []
+        for doc in docs:
+            summary = next(line for line in doc.page_content.splitlines() if line.startswith('Resumo da Alura:'))
+            summary = re.sub(r"(?<=\d)\.(?=\d)", ",", summary)
+            summaries.append(summary if len(docs) == 1 else f"{doc.metadata['sheet']} — {summary}")
+        return '\n'.join(summaries)
+    # A consulta de faltas devolve somente semanas com falta ou a ausência verificada.
+    if docs[0].metadata.get('resultado_vazio'):
+        return docs[0].page_content
+    days = sorted({date.fromisoformat(doc.metadata['data']) for doc in docs})
+    return 'Falta registrada nas semanas encerradas em ' + ', '.join(d.strftime('%d/%m/%Y') for d in days) + '.'
+
+
 def asks_about_schooling(text):
     words = normalize(text)
     if re.search(r'\b(alura|curso|cursos|trilha)\b', words):

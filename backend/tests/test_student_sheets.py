@@ -10,7 +10,7 @@ from openpyxl import Workbook, load_workbook
 
 from src.config import Settings
 from src.services.chains import TriageOutput
-from src.services.spreadsheets import workbook_documents
+from src.services.spreadsheets import explicit_sheet_query, workbook_documents
 from src.services.graph import ITTGraph
 from src.services.vectorDB import StudentQueryError, VectorDB
 from test_google_drive import TestEmbeddings
@@ -233,3 +233,53 @@ def test_exact_pdf_and_legacy_sheet_queries_remain_scoped(tmp_path):
     assert db.query('Entrevista', student='Bia', lookup='perfil')[0].page_content == 'Entrevista'
     with pytest.raises(StudentQueryError, match='Atualizar Docs'):
         db.query('Cursos concluídos', student='Bia', lookup='resumo_cursos')
+
+
+@pytest.mark.parametrize('question, expected, sheet, blank_attendance', [
+    ('Segundo a aba DadosAlura, quantos cursos a Ana iniciou, quantos finalizou e quantas horas consumiu?',
+     '7 cursos iniciados, 4 finalizados, 17,5 horas consumidas', 'Exportação de cursos', False),
+    ('Em quais semanas o scorecard registra explicitamente uma falta da Ana nas reuniões?',
+     '01/03/2026', 'Indicadores', False),
+    ('Em quais semanas a Ana faltou às reuniões?',
+     'Nenhuma falta registrada nas semanas da ficha. Semanas em branco têm presença desconhecida.', 'Indicadores', True),
+])
+def test_chat_answers_sheet_questions_without_model_routing(tmp_path, question, expected, sheet, blank_attendance):
+    path = tmp_path / 'Ficha.xlsx'
+    example(path)
+    if blank_attendance:
+        wb = load_workbook(path)
+        wb['Indicadores']['B5'] = None
+        wb.save(path)
+        wb.close()
+    settings = Settings(_env_file=None, FAISS_INDEX_PATH=str(tmp_path / 'index'))
+    with patch('src.services.vectorDB.OpenWebUIEmbeddings', return_value=TestEmbeddings()):
+        db = VectorDB(settings)
+    db.create_faiss_index(path)
+    triage = Mock()
+    triage.invoke.return_value = TriageOutput(decisao='AUTO_RESOLVER')
+    with (patch('src.services.graph.get_triage_chain', return_value=triage),
+          patch('src.services.graph.get_rag_chain', return_value=RunnableLambda(lambda _: 'NAO_ENCONTRADO'))):
+        graph = ITTGraph(settings, db)
+    result = graph.invoke(question)
+    assert expected in result['response']
+    source, = result['source_documents']
+    assert source['sheet'] == sheet and source['cells']
+
+    async def collect():
+        return [event async for event in graph.astream_response(question)]
+
+    events = asyncio.run(collect())
+    assert events[0]['data'] == [source]
+    assert ''.join(e['data'] for e in events if e['type'] == 'token') == result['response']
+    assert events[-1]['type'] == 'done'
+
+    triage.invoke.assert_not_called()
+
+
+@pytest.mark.parametrize('question', [
+    'Em quais semanas ela faltou às reuniões?',
+    'Quantos cursos de Python a Ana iniciou na Alura?',
+    'Em quais semanas o scorecard registra uma falta da Ana em maio?',
+])
+def test_followups_and_filtered_questions_keep_normal_triage(question):
+    assert explicit_sheet_query(question) is None
