@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "./ThemeContext";
 
@@ -88,15 +88,28 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error' | 'forbidden'>('idle');
 
+  const abortRef = useRef<AbortController | null>(null);
+  const streamTextRef = useRef("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     sessionStorage.setItem(historyKey, JSON.stringify(mensagens));
   }, [mensagens, historyKey]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [mensagens]);
 
   const sair = () => {
     sessionStorage.removeItem(historyKey);
     onLogout();
   };
 
+
+  const cancelarResposta = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  };
 
   const enviarPergunta = async () => {
     if (!pergunta.trim() || isLoading) return;
@@ -106,31 +119,59 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
 
     const perguntaTexto = pergunta;
     setPergunta("");
-
-    const loadingMsg: Mensagem = {
-      autor: "assistant",
-      texto: "Analisando a pergunta, aguarde um momento...",
-      timestamp: horaAtual()
-    };
-    setMensagens((m) => [...m, loadingMsg]);
     setIsLoading(true);
+    streamTextRef.current = "";
 
-    const { texto, fontes } = await consultarBackend(perguntaTexto);
+    // Mensagem vazia: mostra indicador "Analisando..." até o primeiro token
+    setMensagens((m) => [...m, { autor: "assistant", texto: "", timestamp: horaAtual() }]);
 
-    setMensagens((m) =>
-      m.map((msg) =>
-        msg === loadingMsg
-          ? { ...msg, autor: "assistant" as const, texto, fontes, timestamp: horaAtual() }
-          : msg
-      )
+    abortRef.current = new AbortController();
+    let fontes: SourceDocument[] = [];
+
+    const updateLastMessage = (texto: string, extras?: Partial<Mensagem>) => {
+      setMensagens((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (lastIdx >= 0 && updated[lastIdx].autor === "assistant") {
+          updated[lastIdx] = { ...updated[lastIdx], texto, ...extras };
+        }
+        return updated;
+      });
+    };
+
+    const onToken = (token: string) => {
+      streamTextRef.current += token;
+      updateLastMessage(streamTextRef.current);
+    };
+
+    const onSources = (src: SourceDocument[]) => {
+      fontes = src;
+    };
+
+    const result = await consultarBackend(
+      perguntaTexto, onToken, onSources, abortRef.current.signal
     );
 
+    const finalText = result.erro
+      ? result.erro
+      : streamTextRef.current || "Erro ao gerar resposta.";
+    updateLastMessage(finalText, {
+      fontes: result.erro ? [] : fontes,
+      timestamp: horaAtual(),
+    });
+
     setIsLoading(false);
+    abortRef.current = null;
   };
 
-  const consultarBackend = async (texto: string): Promise<{ texto: string; fontes: SourceDocument[] }> => {
+  const consultarBackend = async (
+    texto: string,
+    onToken: (token: string) => void,
+    onSources: (fontes: SourceDocument[]) => void,
+    signal: AbortSignal,
+  ): Promise<{ erro?: string }> => {
     try {
-      const res = await fetch(`${API_URL}/chat/query`, {
+      const res = await fetch(`${API_URL}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
@@ -141,25 +182,52 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
             sources: Array.from(new Set((message.fontes ?? []).map((fonte) => fonte.source))),
           })),
         }),
+        signal,
       });
 
       if (res.status === 401) {
         onLogout();
-        return { texto: "Sua sessão expirou. Entre novamente.", fontes: [] };
+        return { erro: "Sua sessão expirou. Entre novamente." };
       }
 
       if (!res.ok) {
-        const err = await res.json();
-        return { texto: `Erro do servidor: ${err.detail ?? "Desconhecido"}`, fontes: [] };
+        const err = await res.json().catch(() => ({ detail: "Desconhecido" }));
+        return { erro: `Erro do servidor: ${err.detail ?? "Desconhecido"}` };
       }
 
-      const data = await res.json();
-      return {
-        texto: data.response ?? "Erro ao gerar resposta.",
-        fontes: data.source_documents ?? [],
-      };
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop()!;
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event.type === "sources") {
+              onSources(event.data ?? []);
+            } else if (event.type === "token") {
+              onToken(event.data ?? "");
+            } else if (event.type === "error") {
+              return { erro: event.data ?? "Erro desconhecido" };
+            }
+          } catch {
+            // Linha NDJSON malformada — ignorar
+          }
+        }
+      }
+
+      return {};
     } catch (e) {
-      return { texto: "Erro de conexão com o servidor. " + e, fontes: [] };
+      if ((e as Error).name === "AbortError") return {};
+      return { erro: "Erro de conexão com o servidor. " + e };
     }
   };
 

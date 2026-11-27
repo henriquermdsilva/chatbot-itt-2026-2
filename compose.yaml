@@ -1,6 +1,9 @@
 services:
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      # O DNS do build padrão não resolve o PyPI nesta rede; usar a rede do host.
+      network: host
     env_file: ./backend/.test.env
     environment:
       # Caminhos absolutos dentro do container: os relativos do .test.env
