@@ -22,6 +22,7 @@ interface Mensagem {
   texto: string;
   fontes?: SourceDocument[];
   timestamp: string;
+  erro?: boolean;
 }
 
 const horaAtual = () =>
@@ -105,8 +106,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     onLogout();
   };
 
-
-  const cancelarResposta = () => {
+  const pararResposta = () => {
     abortRef.current?.abort();
     abortRef.current = null;
   };
@@ -122,8 +122,11 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     setIsLoading(true);
     streamTextRef.current = "";
 
-    // Mensagem vazia: mostra indicador "Analisando..." até o primeiro token
-    setMensagens((m) => [...m, { autor: "assistant", texto: "", timestamp: horaAtual() }]);
+    // Mensagem inicial: mostra indicador até o primeiro token chegar
+    setMensagens((m) => [
+      ...m,
+      { autor: "assistant", texto: "Analisando a pergunta, aguarde um momento...", timestamp: horaAtual() },
+    ]);
 
     abortRef.current = new AbortController();
     let fontes: SourceDocument[] = [];
@@ -152,13 +155,26 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
       perguntaTexto, onToken, onSources, abortRef.current.signal
     );
 
-    const finalText = result.erro
-      ? result.erro
-      : streamTextRef.current || "Erro ao gerar resposta.";
-    updateLastMessage(finalText, {
-      fontes: result.erro ? [] : fontes,
-      timestamp: horaAtual(),
-    });
+    if (result.erro) {
+      updateLastMessage(result.erro, {
+        fontes: [],
+        erro: true,
+        timestamp: horaAtual(),
+      });
+    } else if (result.aborted) {
+      updateLastMessage(streamTextRef.current || "Resposta interrompida.", {
+        fontes: streamTextRef.current ? fontes : [],
+        erro: true,
+        timestamp: horaAtual(),
+      });
+    } else {
+      const finalText = streamTextRef.current || "Erro ao gerar resposta.";
+      updateLastMessage(finalText, {
+        fontes,
+        erro: !streamTextRef.current,
+        timestamp: horaAtual(),
+      });
+    }
 
     setIsLoading(false);
     abortRef.current = null;
@@ -169,20 +185,20 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
     onToken: (token: string) => void,
     onSources: (fontes: SourceDocument[]) => void,
     signal: AbortSignal,
-  ): Promise<{ erro?: string }> => {
+  ): Promise<{ erro?: string; aborted?: boolean }> => {
     try {
       const res = await fetch(`${API_URL}/chat/stream`, {
         method: "POST",
+        signal,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           message: texto,
-          history: mensagens.slice(-12).map((message) => ({
+          history: mensagens.filter((message) => !message.erro).slice(-12).map((message) => ({
             role: message.autor,
             content: message.texto.slice(0, 5000),
             sources: Array.from(new Set((message.fontes ?? []).map((fonte) => fonte.source))),
           })),
         }),
-        signal,
       });
 
       if (res.status === 401) {
@@ -226,8 +242,11 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
 
       return {};
     } catch (e) {
-      if ((e as Error).name === "AbortError") return {};
-      return { erro: "Erro de conexão com o servidor. " + e };
+      if ((e as Error).name === "AbortError" || signal.aborted) {
+        return { aborted: true };
+      }
+      console.error(e);
+      return { erro: "Não foi possível falar com o servidor. Verifique a conexão e tente de novo." };
     }
   };
 
@@ -373,6 +392,7 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
               )}
             </div>
           ))}
+          <div ref={chatEndRef} />
         </div>
 
         <div style={{...inputArea, background: darkMode ? '#1a1a1d' : '#f3f4f6', borderColor: darkMode ? '#2b2b2e' : '#d1d5db'}}>
@@ -396,11 +416,11 @@ export default function Chat({ idToken, email, onLogout }: ChatProps) {
             />
           </button>
           <button
-            style={{ ...sendBtn, background: darkMode ? '#dc2626' : '#b91c1c', opacity: isLoading ? 0.5 : 1 }}
-            onClick={enviarPergunta}
-            disabled={isLoading}
+            style={{ ...sendBtn, background: darkMode ? '#dc2626' : '#b91c1c' }}
+            onClick={isLoading ? pararResposta : enviarPergunta}
+            title={isLoading ? "Interromper a resposta" : undefined}
           >
-            {isLoading ? "Processando..." : "Enviar"}
+            {isLoading ? "Parar" : "Enviar"}
           </button>
         </div>
       </div>
