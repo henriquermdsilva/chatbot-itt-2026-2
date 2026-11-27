@@ -21,6 +21,7 @@ class Citation(TypedDict):
     source: str
     page: Optional[int]
     sheet: Optional[str]
+    cells: Optional[str]
     snippet: str
 
 class GraphResponse(TypedDict):
@@ -66,7 +67,8 @@ class ITTGraph:
             raw_page = doc.metadata.get("page")
             page = (raw_page + 1) if isinstance(raw_page, int) else None
             sheet = doc.metadata.get('sheet')
-            key = (source_name, page, sheet)
+            cells = doc.metadata.get('cells')
+            key = (source_name, page, sheet, cells)
             if key in seen:
                 continue
             seen.add(key)
@@ -74,17 +76,24 @@ class ITTGraph:
                 "source": source_name,
                 "page": page,
                 "sheet": sheet,
+                "cells": cells,
                 # Sem o cabeçalho "Arquivo:/Aba:" que a indexação põe em cada trecho para o modelo.
-                "snippet": re.sub(r'\A(?:(?:Arquivo|Aba): .*\n)+', '', doc.page_content)[:300].strip(),
+                "snippet": re.sub(r'\A(?:(?:Arquivo|Aba|Aluno|Células): .*\n)+', '', doc.page_content)[:300].strip(),
             })
         return citations
+
+    def _search(self, question, triage):
+        query = triage.get('consulta_busca') or question
+        student = triage.get('aluno')
+        if student or triage.get('consulta_ficha'):
+            return self.vector_db.query(query, student=student or '', lookup=triage.get('consulta_ficha') or '')
+        return self.vector_db.query(query)
 
     def _node_auto_resolve(self, state: AgentState) -> AgentState:
         triage = state.get("triage", {})
         question = triage.get('pergunta_contextualizada') or state.get("question", "")
-        search_query = triage.get('consulta_busca')
         try:
-            related_docs = self.vector_db.query(search_query or question)
+            related_docs = self._search(question, triage)
         except AmbiguousPersonError as error:
             names = "\n".join(f"- {name}" for name in error.names)
             return {
@@ -201,7 +210,7 @@ class ITTGraph:
         search_query = triage.get("consulta_busca")
 
         try:
-            related_docs = self.vector_db.query(search_query or resolved_question)
+            related_docs = self._search(resolved_question, triage)
         except AmbiguousPersonError as error:
             names = "\n".join(f"- {name}" for name in error.names)
             answer = (

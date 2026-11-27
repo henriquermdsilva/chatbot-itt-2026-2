@@ -233,13 +233,14 @@ class GoogleDriveTest(unittest.TestCase):
             self.assertNotIn('Sem Linhas', ' '.join(doc.metadata['source'] for doc in alura_docs))
 
     @patch('src.services.vectorDB.OpenWebUIEmbeddings', new=Mock(return_value=TestEmbeddings()))
-    def test_alura_sheet_with_unknown_columns_is_indexed_whole(self):
+    def test_alura_sheet_with_unknown_columns_is_excluded(self):
         with tempfile.TemporaryDirectory() as folder:
             workbook = Workbook()
             sheet = workbook.worksheets[0]
             sheet.title = 'DadosAlura'
             sheet.append(['Aluno', 'Curso novo'])
-            sheet.append(['Beltrana Clara Dias', 'Python'])
+            sheet.append(['Outra Pessoa', 'Curso privado'])
+            workbook.create_sheet('Anotações').append(['Reunião semanal'])
             workbook.save(Path(folder) / 'Beltrana Clara Dias--id1.xlsx')
             workbook.close()
             with patch('builtins.print') as printed:
@@ -247,7 +248,8 @@ class GoogleDriveTest(unittest.TestCase):
                                              FAISS_INDEX_PATH=str(Path(folder) / 'index')))
                 database.create_faiss_index(folder)
             self.assertIn('colunas diferentes do esperado', str(printed.call_args_list))
-            self.assertIn('B2: Python', database.query('Python')[0].page_content)
+            docs = database.query('Beltrana Clara Dias')
+            self.assertEqual([doc.metadata['sheet'] for doc in docs], ['Anotações'])
 
     def test_interrupted_indexing_resumes_from_embeddings_cache(self):
         def sent(embedder: Mock) -> int:

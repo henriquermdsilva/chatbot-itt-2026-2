@@ -132,7 +132,22 @@ O botão **Atualizar Docs** sincroniza novamente a pasta configurada.
 
 O navegador envia as últimas 12 mensagens para resolver continuações como
 “qual a área de interesse dela?”. O histórico fica separado por usuário no navegador.
-As fontes de planilhas mostram o arquivo e a aba, sem inventar números de página.
+As fontes das fichas de alunos mostram o arquivo, a aba e os intervalos de células.
+Depois de atualizar uma instalação com índice antigo, use **Atualizar Docs** para
+recriar esses registros. Para arquivos locais, execute `python -m src.index_documents`
+com o caminho do arquivo ou da pasta.
+
+Nas fichas, a busca associa as perguntas e respostas da entrevista, os registros
+datados de acompanhamento com sua autoria, as colunas semanais do scorecard e
+as avaliações de atividades. A identificação usa o nome preenchido na ficha.
+Exportações da Alura são filtradas por nome completo antes de indexar os cursos.
+Sem identificação inequívoca, a tabela coletiva fica fora das respostas do aluno.
+Abas auxiliares ou de estrutura desconhecida em fichas identificadas são ignoradas.
+Outras planilhas continuam com leitura genérica por célula.
+
+Perguntas como “qual foi a última observação do mentor de Ana Silva?”, “em quais
+semanas ela faltou?” e “quantos cursos concluiu na Alura?” consultam os registros
+da ficha selecionada. Um campo de frequência vazio indica ausência de registro.
 
 Para testar só a API, com `AUTH_DEV_MODE=true`:
 

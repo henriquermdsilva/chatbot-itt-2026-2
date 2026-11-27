@@ -14,6 +14,7 @@ interface SourceDocument {
   source: string;
   page: number | null;
   sheet?: string | null;
+  cells?: string | null;
   snippet: string;
 }
 
@@ -58,7 +59,7 @@ function SourcesToggle({ fontes, darkMode }: { fontes: SourceDocument[]; darkMod
               <span style={{ ...sourceName, color: darkMode ? '#cbd5e1' : '#4b5563' }}>
                 {fonte.source}
                 {fonte.page && <span style={sourcePage}> (página {fonte.page})</span>}
-                {fonte.sheet && <span style={sourcePage}> (aba {fonte.sheet})</span>}
+                {fonte.sheet && <span style={sourcePage}> (aba {fonte.sheet}{fonte.cells && `, ${fonte.cells}`})</span>}
               </span>
             </div>
           ))}

@@ -28,6 +28,7 @@ class SourceDocument(BaseModel):
     source: str = Field(..., description="Source file name")
     page: Optional[int] = Field(None, description="Page number (1-based)")
     sheet: Optional[str] = Field(None, description="Worksheet name for Excel sources")
+    cells: Optional[str] = Field(None, description="Source cell ranges for spreadsheet records")
     snippet: str = Field(..., description="Relevant part of the document")
 
 
