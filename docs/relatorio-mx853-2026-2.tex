@@ -1,0 +1,880 @@
+\documentclass[12pt,a4paper]{article}
+
+% ----------------------------------------------------------------------
+% Codificação, fonte e idioma
+% ----------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazilian]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ----------------------------------------------------------------------
+% Layout
+% ----------------------------------------------------------------------
+\usepackage[a4paper,top=3cm,bottom=2cm,left=3cm,right=2cm]{geometry}
+\setlength{\headheight}{14pt}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{indentfirst}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usepackage[hidelinks]{hyperref}
+\hypersetup{
+  pdftitle={Chatbot ITT 2026.2: propósito, evolução e contribuições},
+  pdfauthor={Guilherme de Godoi Monteiro; Henrique Ribeiro Medeiros da Silva; Renilson Conceição de Luna Júnior; Vitor Ferreira dos Santos de Lacerda},
+  pdfsubject={Relatório da disciplina MX853},
+  pdfkeywords={RAG, chatbot, FAISS, Google Drive, FastAPI, LangGraph}
+}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+\definecolor{ittred}{HTML}{B91C1C}
+\definecolor{codebg}{HTML}{F5F5F5}
+\definecolor{codecomment}{HTML}{6B7280}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  commentstyle=\color{codecomment},
+  frame=single,
+  rulecolor=\color{gray!40},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  xleftmargin=1.5em,
+  framexleftmargin=1.2em
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small MX853 -- Projeto Integrador Interdisciplinar de Extensão}
+\fancyhead[R]{\small Chatbot ITT 2026.2}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\setlist[itemize]{topsep=4pt,itemsep=2pt,parsep=0pt}
+\setlist[enumerate]{topsep=4pt,itemsep=2pt,parsep=0pt}
+
+\newcommand{\commit}[1]{\texttt{#1}}
+\newcommand{\arquivo}[1]{\path{#1}}
+
+% ----------------------------------------------------------------------
+% Capa
+% ----------------------------------------------------------------------
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \begin{center}
+    {\Large Universidade Estadual de Campinas}\\[0.2cm]
+    {\large Instituto de Computação}\\[2.0cm]
+
+    {\large MX853 -- Projeto Integrador Interdisciplinar de Extensão}\\[2.5cm]
+
+    {\Huge\bfseries Chatbot ITT 2026.2}\\[0.5cm]
+    {\Large Propósito, evolução e contribuições da equipe}\\[2.5cm]
+
+    \begin{tabular}{ll}
+      Guilherme de Godoi Monteiro & 237031\\
+      Henrique Ribeiro Medeiros da Silva & 243172\\
+      Renilson Conceição de Luna Júnior & 247358\\
+      Vitor Ferreira dos Santos de Lacerda & 231524\\
+    \end{tabular}
+
+    \vfill
+    {\large Orientação: Profª. Drª. Juliana Freitag Borin}\\[0.5cm]
+    {\large Campinas -- SP}\\[0.2cm]
+    {\large Novembro de 2026}
+  \end{center}
+\end{titlepage}
+
+% ----------------------------------------------------------------------
+% Resumo
+% ----------------------------------------------------------------------
+\section*{Resumo}
+\addcontentsline{toc}{section}{Resumo}
+
+Este documento descreve o propósito, a evolução e as contribuições da equipe no
+desenvolvimento do chatbot do Instituto Tadao Takahashi (ITT) durante o segundo
+semestre de 2026. O projeto parte de um sistema antecessor de perguntas e respostas
+sobre documentos institucionais, baseado em \emph{Retrieval-Augmented Generation}
+(RAG), e avança para uma aplicação interna com autenticação de contas Google
+restrita ao domínio do ITT, ingestão de PDFs, Google Docs e planilhas do Google
+Drive, consultas estruturadas a fichas de alunos, transmissão de respostas em
+\emph{streaming}, exibição de fontes, testes automatizados e execução com Docker
+Compose. O texto está organizado em três eixos: o propósito do projeto, as adições
+feitas em relação ao código herdado e a descrição do que foi realizado por cada
+participante, com indicação dos commits e arquivos que sustentam cada afirmação.
+
+\noindent\textbf{Palavras-chave:} RAG; chatbot; FAISS; Google Drive; FastAPI;
+LangGraph; extensão universitária.
+
+\newpage
+\begingroup
+\small
+\tableofcontents
+\endgroup
+\newpage
+\listoffigures
+\listoftables
+\newpage
+
+% ======================================================================
+\section{Propósito do projeto}
+% ======================================================================
+
+\subsection{Contexto e problema}
+
+O Instituto Tadao Takahashi (ITT) é uma organização sem fins lucrativos
+sediada em Campinas. Sua atuação envolve projetos educacionais, tecnológicos e
+sociais, o que produz uma grande quantidade de documentos: estatuto, contratos,
+relatórios, planos de trabalho, materiais de formação e fichas de acompanhamento
+de alunos. Esses arquivos ficam distribuídos em pastas compartilhadas do Google
+Drive e, em muitos casos, só são localizados por quem conhece previamente a
+estrutura das pastas.
+
+A busca manual por informação tem três consequências principais. Primeiro, aumenta
+o tempo necessário para responder a perguntas simples da coordenação e dos
+mentores. Segundo, dificulta a recuperação de registros históricos, como a última
+observação de um mentor sobre um aluno ou a quantidade de cursos concluídos em uma
+planilha. Terceiro, expõe dados sensíveis: as fichas de alunos contêm informações
+pessoais e de acompanhamento que não devem ser tratadas como texto genérico.
+
+O projeto se insere nesse contexto como uma iniciativa de extensão universitária.
+O objetivo não é construir um chatbot genérico, mas uma ferramenta interna que
+responda em português com base nos documentos do ITT, indique de onde retirou cada
+informação e respeite as restrições de acesso da instituição.
+
+\subsection{Objetivos}
+
+O objetivo geral é disponibilizar um assistente conversacional interno que facilite
+a consulta a documentos institucionais e a fichas de alunos, com respostas
+fundamentadas e rastreáveis.
+
+Os objetivos específicos são:
+
+\begin{itemize}
+  \item ingerir PDFs, Google Docs exportados como PDF e planilhas \texttt{.xlsx}
+        armazenados no Google Drive, inclusive em subpastas;
+  \item indexar o conteúdo em uma base vetorial FAISS e recuperar os trechos mais
+        relevantes para cada pergunta;
+  \item gerar respostas em português com um modelo de linguagem, usando somente o
+        contexto recuperado e citando as fontes;
+  \item autenticar contas Google no backend, restringir o acesso ao domínio do ITT
+        e limitar a sincronização de documentos a administradores;
+  \item interpretar fichas de alunos de forma estruturada, com filtros por pessoa,
+        data, semana, curso, avaliação, frequência e intervalo de células;
+  \item transmitir a resposta em \emph{streaming}, permitir interromper a geração e
+        exibir as fontes sob demanda;
+  \item manter testes automatizados, documentação de execução e um fluxo de
+        avaliação de modelos;
+  \item empacotar backend e frontend com Docker Compose para reduzir o esforço de
+        instalação.
+\end{itemize}
+
+\subsection{Público-alvo, escopo e limites}
+
+O público-alvo é a equipe do ITT: coordenação, mentores e administradores que
+precisam consultar documentos e acompanhar alunos. A aplicação não é aberta ao
+público e depende de login Google.
+
+O escopo atual inclui documentos institucionais em PDF, Google Docs exportados como
+PDF e planilhas \texttt{.xlsx}. Também inclui fichas individuais de alunos com abas
+de perfil, cursos da Alura, interações com mentores e coordenação, avaliações de
+atividades e \emph{scorecard} semanal.
+
+Os principais limites são:
+
+\begin{itemize}
+  \item não há permissão por perfil: qualquer pessoa autenticada vê o conteúdo
+        indexado;
+  \item PDFs digitalizados precisam de OCR (reconhecimento óptico de caracteres) prévio, que não é executado pelo sistema;
+  \item arquivos \texttt{.xls} e Google Sheets nativos não são suportados;
+  \item fórmulas de planilhas não são recalculadas; o sistema lê os valores salvos;
+  \item o cache de embeddings não é podado automaticamente quando um documento sai
+        da pasta;
+  \item a avaliação de qualidade das respostas ainda depende, em parte, de revisão
+        manual.
+\end{itemize}
+
+\subsection{Arquitetura e fluxo de uso}
+
+A aplicação é dividida em um frontend React/Vite e um backend FastAPI. O backend
+centraliza autenticação, limite de requisições, orquestração do fluxo RAG e acesso
+ao índice vetorial. O modelo de linguagem e os embeddings são acessados por meio da
+API OpenWebUI da Unicamp, com possibilidade de usar o provedor Gemini como
+alternativa legada. O Google Drive é acessado por uma conta de serviço e o login é
+validado com o Google Identity.
+
+A Figura~\ref{fig:arquitetura} resume a arquitetura.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners, align=center, minimum width=3.1cm,
+              minimum height=1.05cm, font=\small, fill=white},
+  ext/.style={draw, rounded corners, align=center, minimum width=3.1cm,
+              minimum height=1.05cm, font=\small, fill=gray!8},
+  arr/.style={-{Latex[length=2mm]}, thick}
+]
+  \node[box] (browser) at (0,0) {Navegador};
+  \node[box] (front) at (3.6,0) {Frontend\\React/Vite};
+  \node[box] (api) at (7.4,0) {Backend FastAPI\\rotas e validação};
+
+  \node[ext] (identity) at (5.4,-1.7) {Google Identity\\ID token};
+  \node[box] (graph) at (9.2,-1.7) {LangGraph\\triagem + RAG};
+
+  \node[box] (faiss) at (7.4,-3.4) {FAISS\\índice + cache};
+  \node[box] (llm) at (11.6,-3.4) {OpenWebUI/Unicamp\\Gemma 3 12B + Nomic};
+
+  \node[ext] (drive) at (7.4,-5.1) {Google Drive\\PDF, Docs, XLSX};
+
+  \draw[arr] (browser) -- (front);
+  \draw[arr] (front) -- (api);
+  \draw[arr] (api) -- (identity);
+  \draw[arr] (api) -- (graph);
+  \draw[arr] (graph) -- (faiss);
+  \draw[arr] (graph) -- (llm);
+  \draw[arr] (faiss) -- (drive);
+\end{tikzpicture}%
+}
+\caption{Arquitetura simplificada do chatbot ITT 2026.2.}
+\label{fig:arquitetura}
+\end{figure}
+
+O fluxo de indexação começa no Google Drive. O backend lista a pasta e suas
+subpastas, baixa PDFs e planilhas, exporta Google Docs como PDF e monta uma pasta
+temporária. Em seguida, o conteúdo é dividido em trechos, convertido em embeddings
+e salvo em um índice FAISS. Se o download ou a leitura falhar, o índice anterior é
+preservado.
+
+O fluxo de pergunta começa no navegador. O frontend envia a mensagem e as últimas
+mensagens da conversa para o backend. O backend valida o token Google, aplica o
+limite de requisições e aciona o grafo LangGraph. O grafo faz uma triagem para
+identificar a intenção, busca os trechos no FAISS e gera a resposta com o modelo.
+No endpoint de \emph{streaming}, as fontes são enviadas antes dos tokens e o texto
+é transmitido em eventos NDJSON.
+
+\subsection{Metodologia e recorte do documento}
+
+O documento foi construído a partir de quatro fontes: o código atual, o histórico
+de commits, a documentação existente no repositório e os relatórios do projeto
+antecessor. Foram usados comandos como \texttt{git log --all},
+\texttt{git diff 087a682..99da614}, \texttt{git show} dos commits relevantes e
+leitura dos arquivos em \arquivo{backend/} e \arquivo{frontend/}.
+
+Para evitar ambiguidade, este documento adota como baseline o commit
+\commit{087a682}, último commit do projeto antecessor e pai do primeiro commit do
+grupo. O primeiro commit do grupo, \commit{804c877}, altera apenas o README; o
+primeiro commit com código é \commit{5b3f952}. O estado atual corresponde ao commit
+\commit{99da614} da branch \texttt{main}.
+
+A atribuição de contribuições segue a autoria registrada no Git. Commits de merge
+são contados separadamente e branches não integradas são identificadas como tal.
+Essa escolha não mede esforço individual: um único commit pode concentrar uma
+funcionalidade inteira, e o histórico não permite inferir programação em par.
+Por segurança, este documento não reproduz credenciais, chaves de API, IDs de
+pastas do Drive ou dados de alunos; nomes e RAs aparecem apenas para atribuição
+de autoria.
+
+% ======================================================================
+\section{Ponto de partida: o projeto antecessor}
+% ======================================================================
+
+\subsection{Linhagem e marcos}
+
+O repositório atual é um fork de \texttt{chraujo/chatbot-itt-2026-1}, que por sua
+vez deriva de \texttt{programacao-dev/chatbot-itt-}. A Tabela~\ref{tab:marcos}
+resume os marcos usados no documento.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}l l l X@{}}
+\toprule
+Marco & Commit & Data & Significado \\
+\midrule
+Origem do repositório & \commit{b2db599} & 21/11/2025 &
+Commit inicial, ainda do projeto antecessor. \\
+Fim do antecessor & \commit{087a682} & 17/07/2026 &
+Último commit antes do grupo; código pronto recebido. \\
+Primeiro commit do grupo & \commit{804c877} & 23/10/2026 &
+Altera apenas o README; primeiro código em \commit{5b3f952}. \\
+Estado atual & \commit{99da614} & 27/11/2026 &
+Branch \texttt{main} após o merge do PR \#3. \\
+\bottomrule
+\end{tabularx}
+\caption{ Marcos temporais adotados no documento.}
+\label{tab:marcos}
+\end{table}
+
+O README do projeto antecessor registra Chris Araújo, Richard Matias e Tallyta
+Duarte como participantes do primeiro semestre de 2026. O histórico também mostra
+contribuições de Antonio, Rodrigo e Marconi em etapas anteriores, incluindo a
+primeira integração com o Google Drive e o botão de atualização de documentos.
+
+\subsection{O que veio pronto}
+
+O código disponível no baseline já implementava um fluxo RAG funcional. A
+Tabela~\ref{tab:herdado} lista as principais funcionalidades herdadas.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}p{4.0cm} X p{3.3cm}@{}}
+\toprule
+Funcionalidade & Descrição no baseline & Evidência \\
+\midrule
+RAG com Gemini & Triagem e geração de resposta com LangGraph, LangChain e
+Google Gemini. & \texttt{chains.py}\newline \texttt{graph.py} \\
+Índice FAISS & Indexação de PDFs e busca por similaridade. &
+\arquivo{vectorDB.py} \\
+Google Drive & Download de PDFs de uma pasta e recriação do índice. &
+\arquivo{google_drive.py} \\
+Auto-sync & Sincronização automática ao iniciar o servidor. &
+\arquivo{api.py} \\
+Botão ``Atualizar Docs'' & Sincronização manual pela interface. &
+\arquivo{Chat.tsx}, \arquivo{admin.py} \\
+Rate limit e retry & Limite de 5 requisições por minuto e retry no cliente
+Gemini. & \commit{917d497} \\
+Rastreamento de fontes & Campos \texttt{source}, \texttt{page} e
+\texttt{snippet} na resposta. & \commit{d7a43c0} \\
+Login Google & Botão de login no frontend, sem validação no backend. &
+\arquivo{Login.tsx} \\
+Tema e timestamps & Modo claro/escuro e horário das mensagens. &
+\commit{3410322}, \commit{087a682} \\
+Docker do backend & Imagem do backend com Python e dependências. &
+\arquivo{backend/Dockerfile} \\
+\bottomrule
+\end{tabularx}
+\caption{Funcionalidades já presentes no baseline.}
+\label{tab:herdado}
+\end{table}
+
+Os relatórios em \arquivo{2026.1/} documentam duas dessas frentes: a otimização do
+rate limit e do retry no Gemini e a implementação do rastreamento de fontes. Eles
+foram usados como fonte para descrever o ponto de partida, mas não devem ser
+confundidos com as contribuições do grupo atual.
+
+\subsection{Lacunas identificadas}
+
+Apesar de funcional, o baseline tinha limitações importantes para o uso interno e
+para o tratamento de dados de alunos. A Tabela~\ref{tab:lacunas} resume as
+principais.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}p{4.6cm} X@{}}
+\toprule
+Lacuna & Consequência \\
+\midrule
+Token Google não validado no backend & Qualquer token poderia ser aceito;
+não havia garantia de que o usuário pertencia ao ITT. \\
+Sem restrição de domínio ou administradores & Qualquer pessoa logada poderia
+acionar a sincronização de documentos. \\
+Apenas PDFs & Planilhas e fichas de alunos não eram indexadas nem consultadas
+de forma estruturada. \\
+Dependência exclusiva do Gemini & Custo, cota e disponibilidade ficavam
+condicionados a um único provedor. \\
+Sem streaming & O usuário esperava a resposta completa antes de ver qualquer
+texto. \\
+Sem testes automatizados & Alterações no fluxo RAG, no Drive ou na autenticação
+podiam introduzir regressões silenciosas. \\
+Sem Docker Compose & A instalação dependia de passos manuais no backend e no
+frontend. \\
+Sem avaliação de modelos & Não havia forma padronizada de comparar respostas,
+fontes e tempos. \\
+Histórico global no navegador & As conversas ficavam no \texttt{localStorage} sem
+separação por usuário. \\
+Sem desambiguação de nomes & Havia risco de misturar fichas de pessoas com nomes
+parecidos. \\
+\bottomrule
+\end{tabularx}
+\caption{Lacunas do baseline que motivaram as adições do grupo.}
+\label{tab:lacunas}
+\end{table}
+
+% ======================================================================
+\section{Adições feitas pelo grupo}
+% ======================================================================
+
+Esta seção descreve as adições em relação ao baseline. A organização é temática,
+e não cronológica, para facilitar a leitura. Cada subseção indica o que existia
+antes, o que mudou e quais commits ou arquivos sustentam a descrição. No total,
+o diff entre \commit{087a682} e \commit{99da614} altera 49 arquivos, com 4.521
+linhas adicionadas e 2.686 removidas.
+
+\subsection{Provedor de LLM e embeddings da Unicamp}
+
+O baseline usava exclusivamente o Google Gemini. O grupo introduziu um provedor
+alternativo baseado na API OpenWebUI da Unicamp, com o modelo \texttt{gemma3:12b}
+para chat e \texttt{nomic-embed-text:latest} para embeddings.
+
+O arquivo \arquivo{backend/src/services/openwebui.py} implementa um
+\texttt{BaseChatModel} e um \texttt{Embeddings} do LangChain sobre os endpoints
+\path{/api/chat/completions} e \path{/ollama/api/embed}. A implementação
+suporta chamadas síncronas, \emph{streaming} síncrono e \emph{streaming}
+assíncrono, necessário para o endpoint de chat em tempo real. Os textos de
+indexação recebem o prefixo \path{search_document:} e as consultas recebem
+\path{search_query:}, conforme a recomendação do modelo Nomic.
+
+A configuração passou a aceitar \path{LLM_PROVIDER=openwebui|google},
+\path{OPENWEBUI_BASE_URL}, \path{OPENWEBUI_API_KEY},
+\path{OPENWEBUI_EMBEDDING_MODEL}, \path{LLM_MODEL} e
+\path{LLM_TIMEOUT}. O provedor Gemini continua disponível como alternativa
+legada.
+
+Para lidar com a cota do servidor, a indexação usa retry exponencial em caso de
+HTTP 429, com lotes de 32 trechos e mensagens de progresso. As perguntas do chat
+não entram em espera longa: é preferível mostrar o erro ao usuário do que
+bloquear a requisição. As evidências principais são os commits \commit{cb69179},
+\commit{8eb4ae0}, \commit{6e6ab2d} e \commit{4196880}.
+
+\subsection{Ingestão e indexação de documentos}
+
+O baseline baixava PDFs de uma pasta do Drive e recriava o índice. O grupo ampliou
+esse fluxo em cinco frentes.
+
+\begin{enumerate}
+  \item \textbf{Listagem recursiva e paginada.} O \arquivo{DriveService} percorre
+        subpastas e continua a listagem além dos primeiros 100 itens, usando
+        \texttt{nextPageToken}. Também valida se o ID informado aponta para uma
+        pasta.
+  \item \textbf{Novos formatos.} Além de PDFs, o sistema baixa planilhas
+        \texttt{.xlsx} e exporta Google Docs como PDF. Arquivos \texttt{.xls} e
+        Google Sheets nativos continuam fora do escopo.
+  \item \textbf{Nomes seguros.} Os arquivos baixados recebem o sufixo
+        \texttt{--<id>} para evitar colisões entre documentos com o mesmo título.
+        Os IDs são removidos na apresentação das fontes ao usuário.
+  \item \textbf{Indexação atômica.} O download ocorre em uma pasta temporária. Se
+        a pasta estiver vazia ou um download falhar, a sincronização falha sem
+        substituir o índice anterior.
+  \item \textbf{Cache de embeddings.} O índice mantém um cache em disco dos
+        vetores já calculados. Apenas os trechos novos são enviados ao servidor,
+        e uma execução interrompida retoma de onde parou. O cache fica dentro da
+        pasta do índice e é separado por modelo.
+\end{enumerate}
+
+Também foi criado o comando \texttt{python -m src.index\_documents}, que aceita um
+caminho local ou a opção \texttt{--drive}. As evidências principais são
+\commit{cb69179}, \commit{8eb4ae0}, \commit{952edd0} e \commit{6e6ab2d}.
+
+\subsection{Fichas de alunos e consultas estruturadas}
+
+Esta é a adição funcional mais extensa. O baseline não interpretava planilhas; o
+grupo criou o módulo \arquivo{backend/src/services/spreadsheets.py} para ler
+fichas de alunos e planilhas de acompanhamento.
+
+O módulo reconhece diferentes tipos de aba:
+
+\begin{itemize}
+  \item \textbf{Perfil:} pares pergunta/resposta da ficha do aluno.
+  \item \textbf{Alura:} cursos, carga horária, progresso, conclusão e avaliação.
+  \item \textbf{Interações:} registros datados de mentores e coordenação.
+  \item \textbf{Avaliações:} atividades, módulos, formações e comentários.
+  \item \textbf{Scorecard:} semanas, horas estudadas, frequência, desempenho e
+        legendas de nota.
+\end{itemize}
+
+Cada registro indexado recebe metadados como \texttt{kind}, \texttt{owner},
+\texttt{sheet}, \texttt{cells}, \texttt{data}, \texttt{frequencia} e
+\texttt{horas}. Isso permite que a busca diferencie um trecho genérico de uma
+pergunta sobre a última interação de um aluno, por exemplo.
+
+O fluxo de consulta foi ajustado para:
+
+\begin{itemize}
+  \item identificar o dono da ficha pelo campo de nome do aluno, com fallback para
+        o nome do arquivo;
+  \item filtrar linhas de planilhas coletivas antes de indexar;
+  \item restringir a busca ao arquivo da pessoa citada;
+  \item pedir desambiguação quando há mais de uma pessoa com o mesmo nome;
+  \item não cair para a planilha inteira quando a identidade não é inequívoca;
+  \item retornar citações com aba e intervalo de células.
+\end{itemize}
+
+As consultas suportadas incluem última interação, última nota do mentor, última
+nota da coordenação, última semana com horas, resumo de cursos, cursos comentados,
+semanas com falta e escolaridade. A ausência de um registro é tratada como
+ausência de informação, não como resposta negativa inventada.
+
+As evidências principais são \commit{e8b37b4}, \commit{2548cc4} e
+\commit{fb61834}. O commit \commit{4376930}, ainda em branch separada, amplia as
+consultas explícitas de cursos e faltas.
+
+\subsection{Autenticação, autorização e segurança}
+
+No baseline, o frontend obtinha um token Google, mas o backend não o validava. O
+grupo passou a validar o ID token no backend com
+\path{google.oauth2.id_token.verify_oauth2_token}, usando o Client ID
+configurado e uma tolerância de 30 segundos para relógios dessincronizados.
+
+Também foram adicionados:
+
+\begin{itemize}
+  \item \path{ALLOWED_EMAIL_DOMAIN}, com padrão
+        \texttt{institutotadao-itt.org.br}; contas de outros domínios recebem 403;
+  \item verificação de \path{email_verified};
+  \item \path{AUTH_DEV_MODE} e o token \path{dev-token} apenas para
+        desenvolvimento local;
+  \item \path{ADMIN_EMAILS}, uma allowlist para o endpoint
+        \path{/admin/sync-knowledge};
+  \item mensagens de erro padronizadas em português para 401, 403, 429, 500 e 503;
+  \item execução da sincronização em thread, para não bloquear a API;
+  \item remoção do Firebase, que não era usado.
+\end{itemize}
+
+As evidências principais são \commit{39e20ce}, \commit{8e994e0},
+\commit{b64ea6c}, \commit{574db76}, \commit{5b3f952} e \commit{6c7496e}.
+
+\subsection{Chat, streaming, fontes e experiência de uso}
+
+O endpoint \texttt{POST /chat/stream} transmite a resposta em NDJSON (Newline Delimited JSON). Cada linha é
+um objeto JSON com um campo \texttt{type}:
+
+\begin{lstlisting}[language=Python,caption={Formato simplificado dos eventos do endpoint de streaming.},label={lst:ndjson}]
+{"type": "sources", "data": [...]}
+{"type": "token", "data": "trecho da resposta"}
+{"type": "done"}
+\end{lstlisting}
+
+As fontes são enviadas antes dos tokens, o que permite ao frontend preparar a
+interface enquanto o texto chega. O botão ``Parar resposta'' usa
+\texttt{AbortController}; respostas interrompidas ou com erro não são enviadas
+como contexto nas perguntas seguintes. O histórico é mantido no
+\texttt{sessionStorage}, separado por usuário, e limitado às últimas 12 mensagens.
+
+A interface também ganhou o toggle ``Ver fontes'', que mostra arquivo, página, aba
+e intervalo de células. O endpoint antigo \texttt{POST /chat/query} foi mantido
+para compatibilidade e para o script de avaliação. As evidências principais são
+\commit{303207e}, \commit{92e6ad2}, \commit{5b2c4fb}, \commit{4196880} e
+\commit{c60f91c}.
+
+\subsection{Docker e operação}
+
+O grupo adicionou um \arquivo{compose.yaml} com dois serviços:
+
+\begin{itemize}
+  \item \textbf{backend:} imagem Python 3.12, healthcheck em \path{/health},
+        volume nomeado para o índice FAISS e montagem somente leitura das
+        credenciais;
+  \item \textbf{frontend:} build multi-stage com Nginx, dependente do backend
+        saudável.
+\end{itemize}
+
+As portas são publicadas apenas em \texttt{127.0.0.1}, coerente com o uso local e
+com o modo de desenvolvimento. O guia \arquivo{RUN_CHATBOT.md} descreve a
+instalação, a configuração do Drive, a indexação e a execução com Docker. Na raiz,
+o comando \texttt{npm run dev} inicia backend e frontend com
+\texttt{concurrently}. As evidências principais são \commit{952edd0},
+\commit{18fde7e}, \commit{91b28a1}, \commit{c11f6d6} e \commit{0979185}.
+
+\subsection{Avaliação de modelos}
+
+O grupo criou o script \arquivo{backend/eval/run_evaluation.py}, que lê um CSV de
+perguntas com \texttt{id}, \texttt{question}, \texttt{expected\_answer},
+\texttt{expected\_source} e \texttt{has\_answer}, executa o fluxo do chatbot e
+grava respostas, fontes retornadas, tempo e erro. O script permite retomar apenas
+as perguntas com erro e sanitiza o nome do modelo no nome do arquivo CSV.
+
+O commit \commit{4df4959}, da branch \path{vitor/avaliacao-modelos}, amplia essa
+base com três scripts:
+
+\begin{itemize}
+  \item \arquivo{build_questions.py}: gera perguntas a partir de PDFs
+        institucionais e de fichas, calculando respostas esperadas localmente;
+  \item \arquivo{compare_models.py}: executa a avaliação em vários modelos e
+        gera dois arquivos CSV, um de comparação e outro de resumo;
+  \item \arquivo{prepare_review.py}: separa as perguntas de PDF para revisão
+        manual e atribui notas automáticas às perguntas de planilha, sem expor
+        dados de alunos.
+\end{itemize}
+
+As evidências principais são \commit{83b2c2e}, \commit{aed567e} e
+\commit{4df4959}.
+
+\subsection{Testes e documentação}
+
+O baseline não tinha testes automatizados. O grupo criou quatro módulos, com 62
+testes no total:
+
+\begin{itemize}
+  \item \arquivo{test_auth.py}: token ausente, inválido, domínio, modo dev,
+        administradores, rate limit e erros;
+  \item \arquivo{test_google_drive.py}: paginação, subpastas, exportação,
+        nomes duplicados, planilhas, cache e falhas;
+  \item \arquivo{test_openwebui.py}: histórico, triagem, RAG, fontes, retry 429,
+        embeddings e erros;
+  \item \arquivo{test_student_sheets.py}: identidade, ambiguidade, datas,
+        células, faltas, escolaridade e compatibilidade.
+\end{itemize}
+
+A documentação foi consolidada no \arquivo{README.md}, no
+\arquivo{RUN_CHATBOT.md}, no \arquivo{backend/README.md} e no
+\arquivo{backend/DOCUMENTACAO_API.md}. As evidências são os commits de
+documentação e os arquivos em \arquivo{backend/tests/}.
+
+\subsection{Quadro-resumo das adições}
+
+A Tabela~\ref{tab:antesdepois} resume a evolução entre o baseline e o estado atual.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}p{3.7cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X@{}}
+\toprule
+Área & Baseline (\commit{087a682}) & Estado atual (\commit{99da614}) \\
+\midrule
+Modelo de linguagem & Gemini & OpenWebUI/Unicamp com Gemma 3 12B; Gemini como fallback \\
+Embeddings & Gemini & Nomic via OpenWebUI, com cache local \\
+Documentos & PDF & PDF, Google Docs exportados, \texttt{.xlsx} e fichas de alunos \\
+Autenticação & Apenas no frontend & Token validado no backend, domínio e allowlist de admin \\
+Chat & Resposta JSON única & JSON e NDJSON com streaming de tokens \\
+Fontes & Lista simples & Toggle com arquivo, página, aba e células \\
+Operação & Docker apenas no backend & Docker Compose, Nginx, healthcheck e volume FAISS \\
+Testes & Nenhum & 62 testes em quatro módulos \\
+Avaliação & Nenhuma & Script de avaliação e comparação multi-modelo em branch \\
+\bottomrule
+\end{tabularx}
+\caption{Quadro-resumo das adições em relação ao baseline.}
+\label{tab:antesdepois}
+\end{table}
+
+% ======================================================================
+\section{O que foi feito por cada participante}
+% ======================================================================
+
+\subsection{Critério de atribuição}
+
+A descrição abaixo segue a autoria dos commits registrada no Git. Commits de merge
+são contados separadamente, e branches não integradas são marcadas como tal. O
+número de commits não deve ser lido como medida de esforço: um commit grande pode
+concentrar uma funcionalidade inteira, enquanto vários commits pequenos podem
+corrigir detalhes de uma mesma frente.
+
+A Tabela~\ref{tab:contribuicoes} apresenta o consolidado.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}p{2.5cm} p{1.7cm} X p{2.4cm}@{}}
+\toprule
+Participante & Commits (all/main) & Frentes principais & Status \\
+\midrule
+Henrique & 28/28 & Autenticação, OpenWebUI, fontes, cache, UX,
+avaliação inicial e documentação & \texttt{main} \\
+Guilherme & 6/5 & OpenWebUI/Drive, fichas, escolaridade, merge do PR \#3 &
+\texttt{main} + branch \\
+Renilson & 7/7 & Docker/Compose, streaming, toggle de fontes & \texttt{main} \\
+Vitor & 1/0 & Avaliação multi-modelo e revisão & branch não integrada \\
+\bottomrule
+\end{tabularx}
+\caption{Consolidado de contribuições por participante.}
+\label{tab:contribuicoes}
+\end{table}
+
+\subsection{Henrique Ribeiro Medeiros da Silva (243172)}
+
+Henrique é o autor com maior número de commits no histórico: 28, todos alcançáveis
+a partir da \texttt{main}. As frentes principais foram:
+
+\begin{itemize}
+  \item \textbf{Base de execução:} fixação do Python 3.12, inclusão do
+        \texttt{slowapi}, \arquivo{.dockerignore}, regeneração de
+        \arquivo{requirements.txt}, correção do \texttt{npm install} na raiz e
+        remoção do Firebase sem uso.
+  \item \textbf{Frontend:} leitura de \path{VITE_API_URL}, correção do
+        timestamp das respostas do assistente, carregamento robusto do botão do
+        Google, botão de parar resposta e mensagens de erro.
+  \item \textbf{Autenticação e autorização:} validação do token Google no backend,
+        restrição ao domínio do ITT, modo de desenvolvimento, allowlist de
+        administradores e padronização de erros.
+  \item \textbf{RAG e robustez:} fontes sob demanda, esclarecimento de nomes
+        repetidos, cache de embeddings, busca restrita à planilha da pessoa,
+        retry para 429 na indexação e processamento de perguntas em thread.
+  \item \textbf{Avaliação e documentação:} script inicial de avaliação,
+        correção do nome do CSV, README unificado, \arquivo{RUN_CHATBOT.md} e
+        documentação da API.
+\end{itemize}
+
+Commits representativos: \commit{5b3f952}, \commit{39e20ce}, \commit{8eb4ae0},
+\commit{b64ea6c}, \commit{8e994e0}, \commit{6e6ab2d}, \commit{303207e},
+\commit{92e6ad2}, \commit{134fe20} e \commit{83b2c2e}. Henrique também assinou os
+merges dos PRs \#1 e \#2.
+
+\subsection{Guilherme de Godoi Monteiro (237031)}
+
+Guilherme tem seis commits autorais: cinco no \texttt{main} e um na branch
+\texttt{fix/\allowbreak consultas-\allowbreak alura-\allowbreak faltas}. As frentes principais foram:
+
+\begin{itemize}
+  \item \textbf{Integração inicial com a Unicamp:} o commit \commit{cb69179}
+        introduz o provedor OpenWebUI, reestrutura o acesso ao Google Drive, cria
+        o CLI de indexação, adiciona os primeiros testes de Drive/OpenWebUI e
+        atualiza a documentação de execução. É um commit grande, com 23 arquivos
+        e cerca de 1.287 inserções.
+  \item \textbf{Fichas de alunos:} os commits \commit{e8b37b4}, \commit{2548cc4}
+        e \commit{fb61834} implementam consultas por registro e intervalo de
+        células, recuperação da escolaridade, isolamento entre fichas e
+        compatibilidade com índices anteriores.
+  \item \textbf{Integração:} \commit{99da614} é o merge do PR \#3, que traz a
+        leitura de fichas para a \texttt{main}.
+  \item \textbf{Branch adicional:} \commit{4376930} responde a consultas
+        explícitas de cursos e faltas com dados da ficha, mas ainda não foi
+        integrado.
+\end{itemize}
+
+\subsection{Renilson Conceição de Luna Júnior (247358)}
+
+Renilson tem sete commits, todos no \texttt{main}. As frentes principais foram:
+
+\begin{itemize}
+  \item \textbf{Teste de modelo:} o documento \arquivo{teste/teste-modelo.md}
+        registra o planejamento inicial de perguntas e um script de avaliação
+        com Gemini.
+  \item \textbf{Docker e operação:} o commit \commit{952edd0} adiciona o
+        \arquivo{compose.yaml}, o Dockerfile do frontend, a configuração do Nginx,
+        o endpoint \path{/health} e instruções no \arquivo{RUN_CHATBOT.md}.
+  \item \textbf{Streaming:} os commits \commit{5b2c4fb} e \commit{4196880}
+        implementam o streaming de texto no backend e no frontend, incluindo o
+        toggle de fontes e o consumo de eventos SSE (Server-Sent Events) do OpenWebUI.
+  \item \textbf{Integração:} \commit{b64a76e}, \commit{496789d} e
+        \commit{c60f91c} fazem merge e ajustes de compatibilidade entre a branch
+        de streaming e a \texttt{main}.
+\end{itemize}
+
+\subsection{Vitor Ferreira dos Santos de Lacerda (231524)}
+
+Vitor tem um commit, \commit{4df4959}, na branch
+\path{vitor/avaliacao-modelos}, ainda não integrada à \texttt{main}. O commit
+adiciona 401 linhas em três scripts:
+
+\begin{itemize}
+  \item \arquivo{build_questions.py}: gera o CSV de perguntas, combinando
+        perguntas fixas sobre PDFs institucionais com perguntas derivadas das
+        fichas; as respostas esperadas são calculadas localmente.
+  \item \arquivo{compare_models.py}: executa a avaliação em vários modelos,
+        compara respostas, fontes e tempos e gera arquivos de resumo.
+  \item \arquivo{prepare_review.py}: prepara a revisão manual das perguntas de
+        PDF e atribui notas automáticas às perguntas de planilha, preservando a
+        privacidade dos dados de alunos.
+\end{itemize}
+
+No estado atual, a branch está 1 commit à frente e 12 atrás da \texttt{main}. Para
+ser apresentada como entrega consolidada, precisa de rebase ou merge e de uma
+revisão dos conflitos com os scripts de avaliação já existentes.
+
+% ======================================================================
+\section{Considerações finais}
+% ======================================================================
+
+O projeto evoluiu de um chatbot RAG experimental, limitado a PDFs e ao provedor
+Gemini, para uma aplicação interna com autenticação, ingestão de documentos do
+Drive, consultas estruturadas a fichas de alunos, streaming, fontes detalhadas,
+testes automatizados e execução reprodutível com Docker Compose.
+
+As adições mais relevantes são a validação de identidade no backend, a leitura
+estruturada de planilhas e fichas, o provedor OpenWebUI da Unicamp e o streaming
+com possibilidade de interrupção. Essas mudanças aproximam o sistema de um uso real
+pela equipe do ITT, mas não eliminam todas as limitações.
+
+Os principais trabalhos futuros são:
+
+\begin{itemize}
+  \item implementar permissões por perfil, para que cada usuário veja apenas os
+        documentos e alunos aos quais tem direito;
+  \item adicionar OCR para PDFs digitalizados;
+  \item suportar Google Sheets nativos e arquivos \texttt{.xls};
+  \item criar uma política de expiração e limpeza do cache de embeddings;
+  \item integrar a avaliação multi-modelo à \texttt{main} e automatizar a revisão;
+  \item adicionar integração contínua para executar os testes a cada alteração;
+  \item monitorar custo, latência e taxa de erro do provedor de LLM em produção.
+\end{itemize}
+
+% ======================================================================
+% Referências
+% ======================================================================
+\phantomsection
+\addcontentsline{toc}{section}{Referências}
+\begin{thebibliography}{9}
+
+\bibitem{repo}
+HENRIQUE SILVA et al.
+\textbf{chatbot-itt-2026-2}.
+GitHub, 2026.
+Disponível em: \url{https://github.com/henriquermdsilva/chatbot-itt-2026-2}.
+Acesso em: 27 nov. 2026.
+
+\bibitem{antecessor}
+CHRIS ARAÚJO et al.
+\textbf{chatbot-itt-2026-1}.
+GitHub, 2026.
+Disponível em: \url{https://github.com/chraujo/chatbot-itt-2026-1}.
+Acesso em: 27 nov. 2026.
+
+\bibitem{programacao}
+PROGRAMAÇÃO DEV.
+\textbf{chatbot-itt-}.
+GitHub, 2025.
+Disponível em: \url{https://github.com/programacao-dev/chatbot-itt-}.
+Acesso em: 27 nov. 2026.
+
+\bibitem{fastapi}
+TIANGOLO, Sebastián Ramírez.
+\textbf{FastAPI documentation}.
+Disponível em: \url{https://fastapi.tiangolo.com/}.
+Acesso em: 27 nov. 2026.
+
+\bibitem{langchain}
+LANGCHAIN.
+\textbf{LangChain documentation}.
+Disponível em: \url{https://python.langchain.com/}.
+Acesso em: 27 nov. 2026.
+
+\bibitem{langgraph}
+LANGCHAIN.
+\textbf{LangGraph documentation}.
+Disponível em: \url{https://langchain-ai.github.io/langgraph/}.
+Acesso em: 27 nov. 2026.
+
+\bibitem{faiss}
+META AI.
+\textbf{FAISS: A library for efficient similarity search}.
+Disponível em: \url{https://github.com/facebookresearch/faiss}.
+Acesso em: 27 nov. 2026.
+
+\bibitem{openwebui}
+OPEN WEBUI.
+\textbf{Open WebUI documentation}.
+Disponível em: \url{https://docs.openwebui.com/}.
+Acesso em: 27 nov. 2026.
+
+\bibitem{drive}
+GOOGLE.
+\textbf{Google Drive API documentation}.
+Disponível em: \url{https://developers.google.com/workspace/drive/api}.
+Acesso em: 27 nov. 2026.
+
+\end{thebibliography}
+
+% ======================================================================
+% Apêndices
+% ======================================================================
+\end{document}
