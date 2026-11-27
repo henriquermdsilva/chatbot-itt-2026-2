@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from .spreadsheets import asks_about_schooling
 from .chains import get_triage_chain, get_rag_chain
-from .vectorDB import VectorDB, AmbiguousPersonError
+from .vectorDB import VectorDB, StudentQueryError
 from ..config import Settings
 
 class AgentState(TypedDict, total=False):
@@ -98,10 +98,9 @@ class ITTGraph:
         question = triage.get('pergunta_contextualizada') or state.get("question", "")
         try:
             related_docs = self._search(question, triage)
-        except AmbiguousPersonError as error:
-            names = "\n".join(f"- {name}" for name in error.names)
+        except StudentQueryError as error:
             return {
-                "answer": f"Encontrei mais de uma pessoa com esse nome:\n\n{names}\n\nSobre qual delas você quer saber?",
+                "answer": str(error),
                 "citations": [],
                 "rag_success": False,
             }
@@ -211,18 +210,12 @@ class ITTGraph:
         # 3. auto_resolve: busca no VectorDB (síncrona)
         triage = state.get("triage", {})
         resolved_question = triage.get("pergunta_contextualizada") or question
-        search_query = triage.get("consulta_busca")
 
         try:
             related_docs = self._search(resolved_question, triage)
-        except AmbiguousPersonError as error:
-            names = "\n".join(f"- {name}" for name in error.names)
-            answer = (
-                f"Encontrei mais de uma pessoa com esse nome:\n\n{names}"
-                "\n\nSobre qual delas você quer saber?"
-            )
+        except StudentQueryError as error:
             yield {"type": "sources", "data": []}
-            yield {"type": "token", "data": answer}
+            yield {"type": "token", "data": str(error)}
             yield {"type": "done"}
             return
 

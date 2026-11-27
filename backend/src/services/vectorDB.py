@@ -20,9 +20,14 @@ class IndexNotFoundError(ValueError):
     pass
 
 
-class AmbiguousPersonError(ValueError):
+class StudentQueryError(ValueError):
+    """Mensagem ao usuário quando a consulta individual não pode ser resolvida."""
+
+
+class AmbiguousPersonError(StudentQueryError):
     def __init__(self, names: list[str]):
-        super().__init__(f'Mais de uma pessoa corresponde a pergunta: {len(names)}')
+        options = '\n'.join(f'- {name}' for name in names)
+        super().__init__(f'Encontrei mais de uma pessoa com esse nome:\n\n{options}\n\nSobre qual delas você quer saber?')
         self.names = names
 
 
@@ -31,7 +36,7 @@ def _student_lookup(docs, lookup):
         return [d for d in docs if d.metadata['kind'] == 'resumo_cursos']
     if lookup == 'cursos_comentados':
         evaluations = [d for d in docs if d.metadata['kind'] == 'avaliacao']
-        selected = [d for d in evaluations if d.metadata['curso_comentado']]
+        selected = [d for d in evaluations if d.metadata['curso_comentado'] or d.metadata.get('comentario_sem_tipo')]
         evidence = evaluations
         empty = 'Nenhum curso com comentário do aluno entre as atividades registradas.'
     elif lookup == 'semanas_com_falta':
@@ -46,7 +51,7 @@ def _student_lookup(docs, lookup):
             'ultima_semana_com_horas': ('semana', 'horas'),
         }
         if lookup not in latest:
-            return []
+            return None  # A triagem pode devolver uma operação desconhecida.
         kind, required = latest[lookup]
         dated = [d for d in docs if d.metadata['kind'] == kind and d.metadata['data']
                  and (not required or d.metadata[required])]
@@ -89,6 +94,7 @@ class VectorDB:
         query = f' {student_name or normalize(message)} '
         schooling = lookup == 'escolaridade' or asks_about_schooling(message)
         student_docs = {}
+        legacy_sheets = set()
         matches = {}
         people = {}
         people_sources = {}
@@ -99,8 +105,8 @@ class VectorDB:
             if not isinstance(doc, Document):
                 continue
             source = doc.metadata.get('source', '')
-            if student and not source.lower().endswith('.xlsx'):
-                continue
+            if lookup and source.lower().endswith('.xlsx') and 'owner' not in doc.metadata:
+                legacy_sheets.add(source)
             if doc.metadata.get('kind') and (lookup or schooling):
                 student_docs.setdefault(source, []).append(doc)
             name = doc.metadata.get('owner') or Path(source).stem.split('--')[0]
@@ -129,7 +135,10 @@ class VectorDB:
         if matches:
             longest = max(matches.values())
             sources = {source for source, length in matches.items() if length == longest}
-            if (student or lookup) and len(sources) != 1:
+            if lookup or student or schooling:
+                sheets = {s for s in sources if s.lower().endswith('.xlsx')}
+                sources = sheets or sources
+            if (student or lookup or schooling) and len(sources) != 1:
                 return []
             if schooling:
                 records = [doc for source in sources for doc in student_docs.get(source, ())
@@ -138,7 +147,12 @@ class VectorDB:
                     return records
                 # Índices anteriores às fichas estruturadas mantêm a busca dentro do arquivo.
             elif lookup:
-                return _student_lookup(student_docs.get(next(iter(sources)), []), lookup)
+                source = next(iter(sources))
+                result = _student_lookup(student_docs.get(source, []), lookup)
+                if result is not None:
+                    if source in legacy_sheets:
+                        raise StudentQueryError('Atualize o índice em “Atualizar Docs” para consultar os registros desta ficha.')
+                    return result
             return vectorstore.similarity_search(
                 message, k=4, filter=lambda metadata: metadata.get('source') in sources,
                 fetch_k=vectorstore.index.ntotal,
@@ -147,6 +161,12 @@ class VectorDB:
         if student or lookup:
             return []
 
+        if schooling:
+            if re.search(r'\b(alun[oa]|estudante)\b|\b(escolaridade|formacao|instrucao) (de|da|do) ', query):
+                return []
+            # Uma pergunta geral sobre escolaridade ainda pode ser respondida por documentos institucionais.
+            return vectorstore.similarity_search(message, k=4, fetch_k=vectorstore.index.ntotal,
+                                                 filter=lambda m: not m.get('source', '').lower().endswith('.xlsx'))
         retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
         
         docs = retriever.invoke(message)

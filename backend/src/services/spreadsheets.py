@@ -116,27 +116,33 @@ def fields_text(fields):
     return ' | '.join(f'{label}: {display(c)}' for label, c in fields.items())
 
 
-def alura(rows, header, owner, filename_owner):
-    # Um mesmo nome pode representar pessoas diferentes na exportação da turma.
+def owner_rows(rows, header, owner, filename_owner):
+    if 'Pessoa' not in header:
+        return rows
     person = normalize(owner)
     matching = []
     identifiers = {}
-    other_filename_owner = False
     for row in rows:
         fields = named_cells(row, header)
         if 'Pessoa' not in fields:
             continue
         name = normalize(fields['Pessoa'].value)
         if name != person:
-            other_filename_owner |= name == normalize(filename_owner)
+            if name == normalize(filename_owner):
+                return []
             continue
         for key, cell in fields.items():
             if normalize(key) in ('id colaborador a', 'id colaborador', 'matricula', 'email'):
                 identifiers.setdefault(normalize(key), set()).add(str(cell.value).strip().casefold())
-        if 'Curso' in fields:
-            matching.append(fields)
-    ambiguous = other_filename_owner or any(len(values) > 1 for values in identifiers.values())
-    if not matching or len(person.split()) < 2 or ambiguous:
+        matching.append(row)
+    if len(person.split()) < 2 or any(len(values) > 1 for values in identifiers.values()):
+        return []
+    return matching
+
+
+def alura(rows, header):
+    matching = [named_cells(row, header) for row in rows if header['Curso'] in row]
+    if not matching:
         print('Aviso: aluno do nome do arquivo não aparece ou identificação ambígua na tabela de cursos.')
         return
     courses = {}
@@ -208,8 +214,11 @@ def evaluations(rows, header):
             context.append(f'Formação: {formation}')
         if module and module != name:
             context.append(f'Módulo: {module}')
+        if not activity:
+            context.append('Tipo de atividade: não informado')
         yield record('avaliacao', ' | '.join([*context, fields_text(fields)]), span(row.values()),
-                     curso_comentado=activity == 'curso' and 'Comentário do aluno' in fields)
+                     curso_comentado=activity == 'curso' and 'Comentário do aluno' in fields,
+                     comentario_sem_tipo=not activity and 'Comentário do aluno' in fields)
 
 
 def scorecard(rows):
@@ -286,6 +295,8 @@ def course_table(title, rows):
     for row in rows:
         keys = columns(row)
         labels = {normalize(c.value) for c in row.values()}
+        if 'Nome da atividade' in keys:
+            continue
         if 'Pessoa' in keys and (any('curso' in k for k in labels) or 'matricula' in labels):
             return True
         if 'Curso' in keys and ('Carga Horária Consumida' in keys or 'id curso' in labels):
@@ -300,16 +311,18 @@ def sheet_records(sheet, owner, filename_owner, profiles, collective):
     for i, row in enumerate(rows[:40]):
         header = columns(row)
         if {'Pessoa', 'Curso'} <= header.keys():
-            person_columns = sum(HEADERS.get(normalize(c.value)) == 'Pessoa' for c in row.values())
-            if person_columns != 1:
-                return ()
-            return alura(rows[i + 1:], header, owner, filename_owner)
-        if sheet.title in collective:
+            reader = alura
+        elif sheet.title in collective:
             continue
-        if 'Data' in header and {'Nota Mentor', 'Nota Coordenador', 'Resposta Mentor'} & header.keys():
-            return interactions(rows[i + 1:], header)
-        if 'Nome da atividade' in header and {'Tipo de atividade', 'Comentário do aluno'} & header.keys():
-            return evaluations(rows[i + 1:], header)
+        elif 'Data' in header and {'Nota Mentor', 'Nota Coordenador', 'Resposta Mentor'} & header.keys():
+            reader = interactions
+        elif 'Nome da atividade' in header and {'Tipo de atividade', 'Comentário do aluno'} & header.keys():
+            reader = evaluations
+        else:
+            continue
+        if sum(HEADERS.get(normalize(c.value)) == 'Pessoa' for c in row.values()) > 1:
+            return ()
+        return reader(owner_rows(rows[i + 1:], header, owner, filename_owner), header)
 
     if sheet.title in collective:
         print('Aviso: tabela de cursos com colunas diferentes do esperado, ignorada.')

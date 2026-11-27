@@ -1,6 +1,10 @@
 import asyncio
 from unittest.mock import Mock, patch
 
+import pytest
+
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 from langchain_core.runnables import RunnableLambda
 from openpyxl import Workbook, load_workbook
 
@@ -8,7 +12,7 @@ from src.config import Settings
 from src.services.chains import TriageOutput
 from src.services.spreadsheets import workbook_documents
 from src.services.graph import ITTGraph
-from src.services.vectorDB import VectorDB
+from src.services.vectorDB import StudentQueryError, VectorDB
 from test_google_drive import TestEmbeddings
 
 
@@ -103,6 +107,7 @@ def test_ambiguous_identity_or_unrecognized_roster_never_falls_back_to_whole_she
         wb.close()
         assert list(workbook_documents(path)) == []
 
+
 def test_both_chat_endpoints_ground_followup_in_the_same_dated_record(tmp_path):
     path = tmp_path / 'Ficha 17.xlsx'
     example(path)
@@ -178,6 +183,7 @@ def test_education_question_finds_schooling_outside_semantic_top_four(tmp_path):
     })
     assert [d.metadata['cells'] for d in docs] == ['A7:B7']
     assert not db.query('Qual a escolaridade?', student='Ana Souza')
+    assert not db.query('Qual a escolaridade da aluna Isabela?')
     assert db.query('Quais cursos Ana concluiu na Alura?', student='Ana',
                     lookup='resumo_cursos')[0].metadata['kind'] == 'resumo_cursos'
 
@@ -189,3 +195,41 @@ def test_excel_lock_file_does_not_prevent_indexing(tmp_path):
         db = VectorDB(Settings(_env_file=None, FAISS_INDEX_PATH=str(tmp_path / 'index')))
     db.create_faiss_index(tmp_path)
     assert db.query('Ana Silva')
+
+
+def test_shared_notes_and_evaluations_are_filtered_before_lookup(tmp_path):
+    path = tmp_path / 'Ficha.xlsx'
+    example(path)
+    wb = load_workbook(path)
+    notes = wb['Histórico']
+    notes['D2'] = 'Nome do aluno'
+    notes.append([None, '15/04/2026', 'Nota de Ana', 'Ana Silva'])
+    notes.append([None, '16/04/2026', 'Nota de Bruna', 'Bruna Rocha'])
+    sheet = wb.create_sheet('Outras avaliações')
+    sheet.append(['Nome do aluno', 'Atividade', 'Comentário do estudante'])
+    sheet.append(['Bruna Rocha', 'Atividade B', 'Comentário de Bruna'])
+    sheet.append(['Ana Silva', 'Atividade A', 'Comentário de Ana'])
+    wb.save(path)
+    wb.close()
+    with patch('src.services.vectorDB.OpenWebUIEmbeddings', return_value=TestEmbeddings()):
+        db = VectorDB(Settings(_env_file=None, FAISS_INDEX_PATH=str(tmp_path / 'index')))
+    db.create_faiss_index(path)
+    note, = db.query('última observação', student='Ana Silva', lookup='ultima_nota_mentor')
+    assert 'Nota de Ana' in note.page_content
+    comments = db.query('comentários', student='Ana Silva', lookup='cursos_comentados')
+    assert any('Tipo de atividade: não informado' in d.page_content for d in comments)
+    assert all('Bruna' not in d.page_content for d in workbook_documents(path))
+
+
+def test_exact_pdf_and_legacy_sheet_queries_remain_scoped(tmp_path):
+    embeddings = TestEmbeddings()
+    docs = [Document(page_content='Astronomia', metadata={'source': 'Ana Silva.pdf'}),
+            Document(page_content='Entrevista', metadata={'source': 'Bia Dias.xlsx', 'sheet': 'Perfil'})]
+    FAISS.from_documents(docs, embeddings).save_local(str(tmp_path))
+    with patch('src.services.vectorDB.OpenWebUIEmbeddings', return_value=embeddings):
+        db = VectorDB(Settings(_env_file=None, FAISS_INDEX_PATH=str(tmp_path)))
+    assert db.query('Área de interesse?', student='Ana Silva')[0].page_content == 'Astronomia'
+    assert not db.query('Qual a escolaridade de Isabela?')
+    assert db.query('Entrevista', student='Bia', lookup='perfil')[0].page_content == 'Entrevista'
+    with pytest.raises(StudentQueryError, match='Atualizar Docs'):
+        db.query('Cursos concluídos', student='Bia', lookup='resumo_cursos')
