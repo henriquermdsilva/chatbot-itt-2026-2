@@ -6,24 +6,70 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from openpyxl import load_workbook
 from langchain_core.documents import Document
+from openpyxl.utils.cell import get_column_letter, range_boundaries
 import re
 
 from ..config import Settings
 from .google_drive import DriveService
 from .openwebui import OpenWebUIEmbeddings
-from .spreadsheets import normalize, sheet_lines
+from .spreadsheets import asks_about_schooling, is_schooling_record, normalize, workbook_documents
 
 
 class IndexNotFoundError(ValueError):
     pass
 
 
-class AmbiguousPersonError(ValueError):
+class StudentQueryError(ValueError):
+    """Mensagem ao usuário quando a consulta individual não pode ser resolvida."""
+
+
+class AmbiguousPersonError(StudentQueryError):
     def __init__(self, names: list[str]):
-        super().__init__(f'Mais de uma pessoa corresponde a pergunta: {len(names)}')
+        options = '\n'.join(f'- {name}' for name in names)
+        super().__init__(f'Encontrei mais de uma pessoa com esse nome:\n\n{options}\n\nSobre qual delas você quer saber?')
         self.names = names
+
+
+def _student_lookup(docs, lookup):
+    if lookup == 'resumo_cursos':
+        return [d for d in docs if d.metadata['kind'] == 'resumo_cursos']
+    if lookup == 'cursos_comentados':
+        evaluations = [d for d in docs if d.metadata['kind'] == 'avaliacao']
+        selected = [d for d in evaluations if d.metadata['curso_comentado'] or d.metadata.get('comentario_sem_tipo')]
+        evidence = evaluations
+        empty = 'Nenhum curso com comentário do aluno entre as atividades registradas.'
+    elif lookup == 'semanas_com_falta':
+        evidence = [d for d in docs if d.metadata['kind'] == 'semana']
+        selected = [d for d in evidence if d.metadata['frequencia'] in ('falta', 'faltou', 'ausente')]
+        empty = 'Nenhuma falta registrada nas semanas da ficha. Semanas em branco têm presença desconhecida.'
+    else:
+        latest = {
+            'ultima_interacao': ('interacao', None),
+            'ultima_nota_mentor': ('interacao', 'mentor'),
+            'ultima_nota_coordenacao': ('interacao', 'coordenacao'),
+            'ultima_semana_com_horas': ('semana', 'horas'),
+        }
+        if lookup not in latest:
+            return None  # A triagem pode devolver uma operação desconhecida.
+        kind, required = latest[lookup]
+        dated = [d for d in docs if d.metadata['kind'] == kind and d.metadata['data']
+                 and (not required or d.metadata[required])]
+        last = max((d.metadata['data'] for d in dated), default=None)
+        return [d for d in dated if d.metadata['data'] == last]
+    if selected or not evidence:
+        return selected
+    # A ausência é verificada sobre todos os registros, inclusive os que a busca vetorial omitiria.
+    result = []
+    for sheet in dict.fromkeys(d.metadata['sheet'] for d in evidence):
+        rows = [d for d in evidence if d.metadata['sheet'] == sheet]
+        bounds = [range_boundaries(d.metadata['cells']) for d in rows]
+        left, top = min(r[0] for r in bounds), min(r[1] for r in bounds)
+        right, bottom = max(r[2] for r in bounds), max(r[3] for r in bounds)
+        cells = f'{get_column_letter(left)}{top}:{get_column_letter(right)}{bottom}'
+        metadata = {**rows[0].metadata, 'cells': cells}
+        result.append(Document(page_content=empty, metadata=metadata))
+    return result
 
 
 class VectorDB:
@@ -34,7 +80,7 @@ class VectorDB:
             google_api_key=settings.GOOGLE_API_KEY
         )
 
-    def query(self, message : str) -> list[Document]:
+    def query(self, message: str, *, student: str = "", lookup: str = "") -> list[Document]:
         # A pasta pode existir vazia: no Docker, o volume do índice começa assim.
         if not (Path(self.settings.FAISS_INDEX_PATH) / 'index.faiss').exists():
             raise IndexNotFoundError("O índice FAISS não foi encontrado. " \
@@ -44,7 +90,11 @@ class VectorDB:
 
         # Fichas de alunos usam formularios parecidos: um nome de arquivo explicito
         # deve restringir a busca antes de comparar os trechos por similaridade.
-        query = f' {normalize(message)} '
+        student_name = normalize(student)
+        query = f' {student_name or normalize(message)} '
+        schooling = lookup == 'escolaridade' or asks_about_schooling(message)
+        student_docs = {}
+        legacy_sheets = set()
         matches = {}
         people = {}
         people_sources = {}
@@ -55,9 +105,14 @@ class VectorDB:
             if not isinstance(doc, Document):
                 continue
             source = doc.metadata.get('source', '')
-            name = Path(source).stem.split('--')[0]
+            if lookup and source.lower().endswith('.xlsx') and 'owner' not in doc.metadata:
+                legacy_sheets.add(source)
+            if doc.metadata.get('kind') and (lookup or schooling):
+                student_docs.setdefault(source, []).append(doc)
+            name = doc.metadata.get('owner') or Path(source).stem.split('--')[0]
             title = normalize(name)
-            if len(title) >= 5 and f' {title} ' in query:
+            exact = title == student_name if student_name else f' {title} ' in query
+            if len(title) >= 5 and exact:
                 matches[source] = len(title)
             # Planilhas individuais têm o nome da pessoa: conta quantas palavras iniciais
             # do nome aparecem na pergunta ("Pedro" = 1, "Pedro Henrique" = 2).
@@ -66,7 +121,7 @@ class VectorDB:
                 matched = 0
                 while matched < len(words) and f' {" ".join(words[:matched + 1])} ' in query:
                     matched += 1
-                if matched:
+                if matched and (not student or matched == len(student_name.split())):
                     people[name] = max(matched, people.get(name, 0))
                     people_sources.setdefault(name, set()).add(source)
 
@@ -80,11 +135,38 @@ class VectorDB:
         if matches:
             longest = max(matches.values())
             sources = {source for source, length in matches.items() if length == longest}
+            if lookup or student or schooling:
+                sheets = {s for s in sources if s.lower().endswith('.xlsx')}
+                sources = sheets or sources
+            if (student or lookup or schooling) and len(sources) != 1:
+                return []
+            if schooling:
+                records = [doc for source in sources for doc in student_docs.get(source, ())
+                           if is_schooling_record(doc)]
+                if records:
+                    return records
+                # Índices anteriores às fichas estruturadas mantêm a busca dentro do arquivo.
+            elif lookup:
+                source = next(iter(sources))
+                result = _student_lookup(student_docs.get(source, []), lookup)
+                if result is not None:
+                    if source in legacy_sheets:
+                        raise StudentQueryError('Atualize o índice em “Atualizar Docs” para consultar os registros desta ficha.')
+                    return result
             return vectorstore.similarity_search(
                 message, k=4, filter=lambda metadata: metadata.get('source') in sources,
                 fetch_k=vectorstore.index.ntotal,
             )
 
+        if student or lookup:
+            return []
+
+        if schooling:
+            if re.search(r'\b(alun[oa]|estudante)\b|\b(escolaridade|formacao|instrucao) (de|da|do) ', query):
+                return []
+            # Uma pergunta geral sobre escolaridade ainda pode ser respondida por documentos institucionais.
+            return vectorstore.similarity_search(message, k=4, fetch_k=vectorstore.index.ntotal,
+                                                 filter=lambda m: not m.get('source', '').lower().endswith('.xlsx'))
         retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
         
         docs = retriever.invoke(message)
@@ -101,20 +183,13 @@ class VectorDB:
         docs = []
         files = [folder_path] if folder_path.is_file() else folder_path.iterdir()
         for file_path in files:
+            if file_path.name.startswith('~$') and file_path.suffix.lower() == '.xlsx':
+                continue
             if not file_path.is_file() or file_path.suffix.lower() not in ('.pdf', '.xlsx'):
                 continue
             try:
                 if file_path.suffix.lower() == '.xlsx':
-                    workbook = load_workbook(file_path, read_only=True, data_only=True)
-                    try:
-                        for sheet in workbook:
-                            rows = sheet_lines(sheet, file_path.stem.split('--')[0])
-                            if rows:
-                                docs.append(Document(page_content='\n'.join(rows), metadata={
-                                    'source': str(file_path), 'sheet': sheet.title,
-                                }))
-                    finally:
-                        workbook.close()
+                    docs.extend(workbook_documents(file_path))
                 else:
                     loader = PyMuPDFLoader(str(file_path))
                     docs.extend(loader.load())
@@ -134,11 +209,20 @@ class VectorDB:
             separators=["\n\n", "\n", " ", ""]
         )
 
-        split_docs = splitter.split_documents(docs)
+        split_docs = []
+        for doc in docs:
+            if doc.metadata.get('kind'):
+                split_docs.append(doc)
+            else:
+                split_docs.extend(splitter.split_documents([doc]))
         for doc in split_docs:
             heading = f"Arquivo: {Path(doc.metadata['source']).name}\n"
             if doc.metadata.get('sheet'):
                 heading += f"Aba: {doc.metadata['sheet']}\n"
+            if doc.metadata.get('kind'):
+                heading += f"Aluno: {doc.metadata['owner']}\n"
+            if doc.metadata.get('cells'):
+                heading += f"Células: {doc.metadata['cells']}\n"
             doc.page_content = heading + doc.page_content
 
         if not split_docs:

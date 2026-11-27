@@ -4,8 +4,9 @@ import re
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import AIMessage, HumanMessage
 
+from .spreadsheets import asks_about_schooling
 from .chains import get_triage_chain, get_rag_chain
-from .vectorDB import VectorDB, AmbiguousPersonError
+from .vectorDB import VectorDB, StudentQueryError
 from ..config import Settings
 
 class AgentState(TypedDict, total=False):
@@ -21,6 +22,7 @@ class Citation(TypedDict):
     source: str
     page: Optional[int]
     sheet: Optional[str]
+    cells: Optional[str]
     snippet: str
 
 class GraphResponse(TypedDict):
@@ -66,7 +68,8 @@ class ITTGraph:
             raw_page = doc.metadata.get("page")
             page = (raw_page + 1) if isinstance(raw_page, int) else None
             sheet = doc.metadata.get('sheet')
-            key = (source_name, page, sheet)
+            cells = doc.metadata.get('cells')
+            key = (source_name, page, sheet, cells)
             if key in seen:
                 continue
             seen.add(key)
@@ -74,21 +77,30 @@ class ITTGraph:
                 "source": source_name,
                 "page": page,
                 "sheet": sheet,
+                "cells": cells,
                 # Sem o cabeçalho "Arquivo:/Aba:" que a indexação põe em cada trecho para o modelo.
-                "snippet": re.sub(r'\A(?:(?:Arquivo|Aba): .*\n)+', '', doc.page_content)[:300].strip(),
+                "snippet": re.sub(r'\A(?:(?:Arquivo|Aba|Aluno|Células): .*\n)+', '', doc.page_content)[:300].strip(),
             })
         return citations
+
+    def _search(self, question, triage):
+        query = triage.get('consulta_busca') or question
+        student = triage.get('aluno')
+        if asks_about_schooling(question):
+            # A pergunta contextualizada mantém o nome e a intenção mesmo com busca traduzida.
+            return self.vector_db.query(question, student=student or '')
+        if student or triage.get('consulta_ficha'):
+            return self.vector_db.query(query, student=student or '', lookup=triage.get('consulta_ficha') or '')
+        return self.vector_db.query(query)
 
     def _node_auto_resolve(self, state: AgentState) -> AgentState:
         triage = state.get("triage", {})
         question = triage.get('pergunta_contextualizada') or state.get("question", "")
-        search_query = triage.get('consulta_busca')
         try:
-            related_docs = self.vector_db.query(search_query or question)
-        except AmbiguousPersonError as error:
-            names = "\n".join(f"- {name}" for name in error.names)
+            related_docs = self._search(question, triage)
+        except StudentQueryError as error:
             return {
-                "answer": f"Encontrei mais de uma pessoa com esse nome:\n\n{names}\n\nSobre qual delas você quer saber?",
+                "answer": str(error),
                 "citations": [],
                 "rag_success": False,
             }
@@ -198,18 +210,12 @@ class ITTGraph:
         # 3. auto_resolve: busca no VectorDB (síncrona)
         triage = state.get("triage", {})
         resolved_question = triage.get("pergunta_contextualizada") or question
-        search_query = triage.get("consulta_busca")
 
         try:
-            related_docs = self.vector_db.query(search_query or resolved_question)
-        except AmbiguousPersonError as error:
-            names = "\n".join(f"- {name}" for name in error.names)
-            answer = (
-                f"Encontrei mais de uma pessoa com esse nome:\n\n{names}"
-                "\n\nSobre qual delas você quer saber?"
-            )
+            related_docs = self._search(resolved_question, triage)
+        except StudentQueryError as error:
             yield {"type": "sources", "data": []}
-            yield {"type": "token", "data": answer}
+            yield {"type": "token", "data": str(error)}
             yield {"type": "done"}
             return
 
