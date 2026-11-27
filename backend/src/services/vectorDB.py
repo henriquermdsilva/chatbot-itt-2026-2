@@ -13,7 +13,7 @@ import re
 from ..config import Settings
 from .google_drive import DriveService
 from .openwebui import OpenWebUIEmbeddings
-from .spreadsheets import normalize, workbook_documents
+from .spreadsheets import asks_about_schooling, is_schooling_record, normalize, workbook_documents
 
 
 class IndexNotFoundError(ValueError):
@@ -87,6 +87,7 @@ class VectorDB:
         # deve restringir a busca antes de comparar os trechos por similaridade.
         student_name = normalize(student)
         query = f' {student_name or normalize(message)} '
+        schooling = lookup == 'escolaridade' or asks_about_schooling(message)
         student_docs = {}
         matches = {}
         people = {}
@@ -100,7 +101,7 @@ class VectorDB:
             source = doc.metadata.get('source', '')
             if student and not source.lower().endswith('.xlsx'):
                 continue
-            if doc.metadata.get('kind') and lookup:
+            if doc.metadata.get('kind') and (lookup or schooling):
                 student_docs.setdefault(source, []).append(doc)
             name = doc.metadata.get('owner') or Path(source).stem.split('--')[0]
             title = normalize(name)
@@ -130,7 +131,13 @@ class VectorDB:
             sources = {source for source, length in matches.items() if length == longest}
             if (student or lookup) and len(sources) != 1:
                 return []
-            if lookup:
+            if schooling:
+                records = [doc for source in sources for doc in student_docs.get(source, ())
+                           if is_schooling_record(doc)]
+                if records:
+                    return records
+                # Índices anteriores às fichas estruturadas mantêm a busca dentro do arquivo.
+            elif lookup:
                 return _student_lookup(student_docs.get(next(iter(sources)), []), lookup)
             return vectorstore.similarity_search(
                 message, k=4, filter=lambda metadata: metadata.get('source') in sources,
@@ -156,6 +163,8 @@ class VectorDB:
         docs = []
         files = [folder_path] if folder_path.is_file() else folder_path.iterdir()
         for file_path in files:
+            if file_path.name.startswith('~$') and file_path.suffix.lower() == '.xlsx':
+                continue
             if not file_path.is_file() or file_path.suffix.lower() not in ('.pdf', '.xlsx'):
                 continue
             try:

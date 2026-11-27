@@ -15,6 +15,23 @@ def normalize(text: object) -> str:
     return ' '.join(re.findall(r'[a-z0-9]+', text))
 
 
+def asks_about_schooling(text):
+    words = normalize(text)
+    if re.search(r'\b(alura|curso|cursos|trilha)\b', words):
+        return False
+    return bool(re.search(r'\b(escolaridade|formacao (escolar|academica)|nivel de formacao|'
+                          r'grau de (instrucao|escolaridade)|nivel de ensino)\b', words))
+
+
+def is_schooling_record(doc):
+    if doc.metadata.get('kind') != 'perfil':
+        return False
+    # O índice da branch já preserva "seção — pergunta: resposta".
+    # Confira só a pergunta para não confundir uma expectativa com a escolaridade atual.
+    _, separator, field = doc.page_content.partition(' — ')
+    return bool(separator) and asks_about_schooling(field.split(':', 1)[0])
+
+
 def display(cell):
     value = cell.value
     if isinstance(value, date):

@@ -36,6 +36,7 @@ TRIAGE_PROMPT = (
     "A palavra fonte com outro sentido, como 'fonte de renda', não é pedido de fonte. "
     "Em perguntas sobre a ficha individual de estudante, inclua aluno com o nome citado na conversa. "
     "Para consultas exatas sobre esse aluno, use consulta_ficha com uma das opções: "
+    "escolaridade (nível de formação escolar ou grau de instrução), "
     "resumo_cursos (totais de cursos/horas na Alura, listas de cursos iniciados ou finalizados), "
     "ultima_interacao, ultima_nota_mentor (inclui observação ou resposta do mentor), "
     "ultima_nota_coordenacao, ultima_semana_com_horas, semanas_com_falta, cursos_comentados "

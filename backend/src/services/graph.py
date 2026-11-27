@@ -4,6 +4,7 @@ import re
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import AIMessage, HumanMessage
 
+from .spreadsheets import asks_about_schooling
 from .chains import get_triage_chain, get_rag_chain
 from .vectorDB import VectorDB, AmbiguousPersonError
 from ..config import Settings
@@ -85,6 +86,9 @@ class ITTGraph:
     def _search(self, question, triage):
         query = triage.get('consulta_busca') or question
         student = triage.get('aluno')
+        if asks_about_schooling(question):
+            # A pergunta contextualizada mantém o nome e a intenção mesmo com busca traduzida.
+            return self.vector_db.query(question, student=student or '')
         if student or triage.get('consulta_ficha'):
             return self.vector_db.query(query, student=student or '', lookup=triage.get('consulta_ficha') or '')
         return self.vector_db.query(query)

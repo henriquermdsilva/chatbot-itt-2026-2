@@ -153,3 +153,39 @@ def test_checked_absences_and_comments_with_no_matches_keep_source_cells(tmp_pat
     assert absences.metadata['cells'] == 'B1:E5'
     courses, = db.query('comentários', student='Ana Silva', lookup='cursos_comentados')
     assert 'Nenhum curso com comentário' in courses.page_content
+
+
+def test_education_question_finds_schooling_outside_semantic_top_four(tmp_path):
+    path = tmp_path / 'Ficha.xlsx'
+    example(path)
+    wb = load_workbook(path)
+    profile = wb['Entrevista 2026']
+    profile.append(['Expectativa', 'Melhorar minha formação escolar'])
+    profile.append(['1.Formação escolar (concluída ou em andamento)?', '2º ano do ensino médio'])
+    wb.save(path)
+    wb.close()
+    with patch('src.services.vectorDB.OpenWebUIEmbeddings', return_value=TestEmbeddings()):
+        db = VectorDB(Settings(_env_file=None, FAISS_INDEX_PATH=str(tmp_path / 'index')))
+    db.create_faiss_index(path)
+    for student, lookup in [('', ''), ('Ana', ''), ('Ana', 'perfil')]:
+        docs = db.query('qual o nivel de formacao da aluna Ana', student=student, lookup=lookup)
+        assert [d.metadata.get('cells') for d in docs] == ['A7:B7']
+        assert '2º ano do ensino médio' in docs[0].page_content
+    with patch('src.services.graph.get_triage_chain'), patch('src.services.graph.get_rag_chain'):
+        graph = ITTGraph(db.settings, db)
+    docs = graph._search('Qual o nível de formação da aluna Ana?', {
+        'consulta_busca': 'academic background', 'consulta_ficha': 'resumo_cursos', 'aluno': 'Ana',
+    })
+    assert [d.metadata['cells'] for d in docs] == ['A7:B7']
+    assert not db.query('Qual a escolaridade?', student='Ana Souza')
+    assert db.query('Quais cursos Ana concluiu na Alura?', student='Ana',
+                    lookup='resumo_cursos')[0].metadata['kind'] == 'resumo_cursos'
+
+
+def test_excel_lock_file_does_not_prevent_indexing(tmp_path):
+    example(tmp_path / 'Ficha.xlsx')
+    (tmp_path / '~$Ficha.xlsx').write_bytes(b'Excel owner file')
+    with patch('src.services.vectorDB.OpenWebUIEmbeddings', return_value=TestEmbeddings()):
+        db = VectorDB(Settings(_env_file=None, FAISS_INDEX_PATH=str(tmp_path / 'index')))
+    db.create_faiss_index(tmp_path)
+    assert db.query('Ana Silva')
